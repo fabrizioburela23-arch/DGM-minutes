@@ -1,0 +1,145 @@
+import { sql } from "drizzle-orm";
+import {
+  boolean,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  real,
+  serial,
+  smallint,
+  text,
+  time,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+
+const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+
+export const submissionStatus = pgEnum("submission_status", [
+  "pending",
+  "read",
+  "needs_review",
+  "confirmed",
+  "rejected",
+  "duplicate",
+]);
+export const deliveryFrequency = pgEnum("delivery_frequency", ["daily", "weekly"]);
+export const reviewAction = pgEnum("review_action", ["confirm", "correct", "reject"]);
+export const managerRole = pgEnum("manager_role", ["manager", "admin"]);
+
+/** Intérpretes de DGM. drive_folder_id une a cada uno con su subcarpeta en Drive. */
+export const interpreters = pgTable(
+  "interpreters",
+  {
+    id: serial("id").primaryKey(),
+    code: text("code").notNull(),
+    fullName: text("full_name").notNull(),
+    email: text("email"),
+    driveFolderId: text("drive_folder_id"),
+    active: boolean("active").notNull().default(true),
+    startDate: date("start_date"),
+    notes: text("notes"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("interpreters_code_uq").on(t.code), uniqueIndex("interpreters_drive_folder_uq").on(t.driveFolderId)],
+);
+
+/** Regla de entrega (cada cuánto se sube el reporte y hasta qué hora). Una activa por ahora. */
+export const deliveryRules = pgTable("delivery_rules", {
+  id: serial("id").primaryKey(),
+  frequency: deliveryFrequency("frequency").notNull().default("daily"),
+  deadlineTime: time("deadline_time").notNull().default("23:59"),
+  timezone: text("timezone").notNull().default("America/La_Paz"),
+  /** 0 = domingo … 6 = sábado. */
+  requiredWeekdays: smallint("required_weekdays").array().notNull().default(sql`'{1,2,3,4,5}'::smallint[]`),
+  holidays: date("holidays").array().notNull().default(sql`'{}'::date[]`),
+  active: boolean("active").notNull().default(true),
+  createdAt: createdAt(),
+});
+
+/** Cada screenshot detectado en Drive. Nunca se duplica por drive_file_id. */
+export const submissions = pgTable(
+  "submissions",
+  {
+    id: serial("id").primaryKey(),
+    interpreterId: integer("interpreter_id")
+      .notNull()
+      .references(() => interpreters.id),
+    driveFileId: text("drive_file_id").notNull(),
+    fileName: text("file_name").notNull(),
+    driveCreatedAt: timestamp("drive_created_at", { withTimezone: true }),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    sha256: text("sha256"),
+    storageKey: text("storage_key"),
+    status: submissionStatus("status").notNull().default("pending"),
+    reviewReason: text("review_reason"),
+  },
+  (t) => [
+    uniqueIndex("submissions_drive_file_uq").on(t.driveFileId),
+    index("submissions_sha256_idx").on(t.sha256),
+    index("submissions_interpreter_idx").on(t.interpreterId),
+    index("submissions_status_idx").on(t.status),
+  ],
+);
+
+/** Lo que leyó la IA en cada screenshot. Puede haber dos por submission (modelo pequeño y mayor). */
+export const readings = pgTable(
+  "readings",
+  {
+    id: serial("id").primaryKey(),
+    submissionId: integer("submission_id")
+      .notNull()
+      .references(() => submissions.id),
+    model: text("model").notNull(),
+    minutes: integer("minutes"),
+    workDate: date("work_date"),
+    extraFields: jsonb("extra_fields").$type<Record<string, unknown>>().notNull().default({}),
+    confidence: real("confidence"),
+    legible: boolean("legible"),
+    rawResponse: jsonb("raw_response"),
+    escalated: boolean("escalated").notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [index("readings_submission_idx").on(t.submissionId), index("readings_work_date_idx").on(t.workDate)],
+);
+
+/** Confirmaciones y correcciones de gerentes. Nunca se borran. */
+export const reviews = pgTable(
+  "reviews",
+  {
+    id: serial("id").primaryKey(),
+    submissionId: integer("submission_id")
+      .notNull()
+      .references(() => submissions.id),
+    reviewerEmail: text("reviewer_email").notNull(),
+    action: reviewAction("action").notNull(),
+    oldValues: jsonb("old_values"),
+    newValues: jsonb("new_values"),
+    note: text("note"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("reviews_submission_idx").on(t.submissionId)],
+);
+
+/** Correos de Google autorizados a entrar al dashboard. */
+export const managers = pgTable("managers", {
+  email: text("email").primaryKey(),
+  name: text("name"),
+  role: managerRole("role").notNull().default("manager"),
+  active: boolean("active").notNull().default(true),
+  createdAt: createdAt(),
+});
+
+/** Registro de cada pasada del worker. */
+export const workerRuns = pgTable("worker_runs", {
+  id: serial("id").primaryKey(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  filesSeen: integer("files_seen").notNull().default(0),
+  filesNew: integer("files_new").notNull().default(0),
+  filesFailed: integer("files_failed").notNull().default(0),
+  error: text("error"),
+});

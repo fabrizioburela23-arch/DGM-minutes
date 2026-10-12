@@ -1,2 +1,33 @@
-// Esquema, migraciones y cliente de Postgres (Drizzle). Se completa en el hito 2.
-export const DB_PACKAGE_READY = false;
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import * as schema from "./schema";
+
+export * from "./schema";
+export { count, eq, and, desc, sql } from "drizzle-orm";
+export { schema };
+export { seedTestData } from "./seed-data";
+
+let cached: ReturnType<typeof createDb> | undefined;
+
+function createDb(url: string) {
+  const client = postgres(url, { max: 5 });
+  return { db: drizzle(client, { schema }), client };
+}
+
+/** Conexión compartida a Postgres usando DATABASE_URL. */
+export function getDb() {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("Falta DATABASE_URL");
+  cached ??= createDb(url);
+  return cached.db;
+}
+
+/** Cierra la conexión (útil en scripts que terminan). */
+export async function closeDb(): Promise<void> {
+  if (cached) {
+    await cached.client.end();
+    cached = undefined;
+  }
+}
+
+export type Db = ReturnType<typeof getDb>;
