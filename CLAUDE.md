@@ -16,7 +16,7 @@ Sistema de reporte automático de minutos para DGM Interpreters. Cada intérpret
   - `apps/worker` — script que hace una pasada completa y termina. Railway lo corre como cron `*/15 * * * *`.
   - `packages/db` — Drizzle ORM, esquema y migraciones de Postgres.
   - `packages/core` — lectura con IA, reglas de validación y cálculo de entregas/atrasos. Lo usan web y worker.
-- Hosting: Railway, proyecto `astonishing-insight`, región EU West. Ya existen: el servicio `DGM-minutes` conectado a este repo, Postgres y el bucket `coordinated-drawer`. El worker será un segundo servicio del mismo repo, con cron. La configuración de Railway vive en la pantalla Settings de cada servicio, no en un `railway.json` (Railway ya no lo acepta para servicios nuevos): `DGM-minutes` construye con `pnpm --filter @dgm/web build`, arranca con `pnpm --filter @dgm/web start`, healthcheck `/api/health`, auto-deploy desde `main`. URL pública: https://dgm-minutes-production.up.railway.app
+- Hosting: Railway, proyecto `astonishing-insight`, región EU West. Ya existen: el servicio `DGM-minutes` conectado a este repo, Postgres y el bucket `coordinated-drawer`. El worker será un segundo servicio del mismo repo, con cron. La configuración de Railway vive en la pantalla Settings de cada servicio, no en un `railway.json` (Railway ya no lo acepta para servicios nuevos): `DGM-minutes` construye con `pnpm --filter @dgm/web build`, arranca con `pnpm --filter @dgm/web start`, healthcheck `/api/health`, auto-deploy desde `main`, y paso pre-deploy `pnpm --filter @dgm/db migrate` (aplica migraciones antes de cada despliegue). URL pública: https://dgm-minutes-production.up.railway.app
 - Google Cloud: proyecto `dgm-minutos`, API de Drive habilitada, cuenta de servicio `dgm-drive-lector@dgm-minutos.iam.gserviceaccount.com` sin roles (solo verá las carpetas que DGM le comparta).
 - IA: API de Anthropic (`@anthropic-ai/sdk`). Modelo pequeño por defecto `claude-haiku-5-5`, modelo mayor `claude-sonnet-5-5`; ambos configurables por variable.
 - Google Drive: paquete `googleapis` con cuenta de servicio, permiso de solo lectura (`drive.readonly`).
@@ -39,6 +39,10 @@ Mantén un `.env.example` con todas, sin valores reales.
 | `APP_TIMEZONE` | Zona horaria por defecto: `America/La_Paz` hasta que DGM confirme |
 | `CONFIDENCE_THRESHOLD` | Umbral para escalar al modelo mayor. Inicial: `0.85` |
 | `MAX_MINUTES_PER_DAY` | Tope de validación. Inicial: `720` |
+| `SEED_TEST_DATA` | `true` carga los 3 intérpretes de prueba en cada despliegue (sin duplicar). Activo en Railway; quitarlo cuando lleguen los datos reales |
+| `SEED_ADMIN_EMAIL` | Opcional: correo que se registra como gerente admin al hacer seed |
+
+Para crear una migración nueva: cambiar `packages/db/src/schema.ts`, correr `pnpm --filter @dgm/db generate` y probar con `pnpm --filter @dgm/db test` (Postgres en memoria).
 
 ## Modelo de datos
 
