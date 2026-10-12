@@ -27,9 +27,14 @@ async function main(): Promise<void> {
   );
 }
 
+// Las librerías de Google y S3 dejan conexiones abiertas que impiden que Node termine solo.
+// Railway no lanza la siguiente pasada del cron mientras esta siga viva, así que salimos explícitamente.
 main()
   .catch((error: unknown) => {
     console.error("[worker] la pasada falló:", error instanceof Error ? error.message : error);
     process.exitCode = 1;
   })
-  .finally(closeDb);
+  .finally(async () => {
+    await closeDb().catch(() => {});
+    process.exit(process.exitCode ?? 0);
+  });
