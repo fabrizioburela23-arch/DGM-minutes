@@ -2,7 +2,8 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { deliveryRules, interpreters, managers } from "./schema";
 import type * as schema from "./schema";
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+/** Cualquier base Drizzle con este esquema (Postgres real o PGlite en pruebas). */
+export type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 const TEST_NOTE = "Intérprete de prueba. Borrar cuando lleguen los datos reales de DGM.";
 

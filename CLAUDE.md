@@ -46,21 +46,31 @@ Para crear una migración nueva: cambiar `packages/db/src/schema.ts`, correr `pn
 
 ## Modelo de datos
 
-- `interpreters`: id, code (código interno DGM), full_name, email, drive_folder_id, active, start_date, notes.
+- `interpreters`: id, code (código interno DGM), full_name, email, portal_id (ID en el portal de Propio), drive_folder_id, active, start_date, notes.
 - `delivery_rules`: frequency (`daily` | `weekly`), deadline_time, timezone, required_weekdays, holidays (lista de fechas). Una regla activa por ahora.
 - `submissions`: id, interpreter_id, drive_file_id (único), file_name, drive_created_at, detected_at, sha256, storage_key, status (`pending` | `read` | `needs_review` | `confirmed` | `rejected` | `duplicate`), review_reason.
-- `readings`: id, submission_id, model, minutes, work_date, extra_fields (jsonb), confidence (0–1), legible (bool), raw_response (jsonb), escalated (bool), created_at.
+- `readings`: id, submission_id, model, minutes, calls, period_start, period_end, portal_interpreter_id, portal_interpreter_name, extra_fields (jsonb), confidence (0–1), legible (bool), raw_response (jsonb), escalated (bool), created_at.
 - `reviews`: id, submission_id, reviewer_email, action (`confirm` | `correct` | `reject`), old_values, new_values, note, created_at. Nunca se borran.
 - `managers`: email, name, role (`manager` | `admin`), active.
-- `worker_runs`: started_at, finished_at, files_seen, files_new, files_failed, error.
+- `worker_runs`: started_at, finished_at, files_seen, files_new, files_failed, alerts (jsonb), error.
+
+## Qué muestran los screenshots (portal de Propio)
+
+Los intérpretes de DGM trabajan en `interpreters.propio-ls.com/portal`. El screenshot muestra:
+
+- Arriba: "Welcome, <nombre> (<ID de portal>)" y tres totales: **Calls**, **Minutes**, **Pay** (Pay siempre $0.00; ignorarlo).
+- Los totales corresponden al rango **Start Date – End Date** elegido en la página, no a un día fijo. Un mismo screenshot puede cubrir un mes entero.
+- Abajo, la tabla de llamadas (Customer ID, fecha, hora, duración). Puede estar paginada: la fuente de verdad son los totales de arriba, no la suma de las filas visibles.
+
+Consecuencias: la IA lee `minutes`, `calls`, `period_start`, `period_end`, `portal_interpreter_id` y `portal_interpreter_name`. El ID de portal se compara con `interpreters.portal_id` para detectar screenshots de otra persona.
 
 ## Flujo del worker (una pasada)
 
-1. Listar las subcarpetas de `DRIVE_ROOT_FOLDER_ID` y asociarlas a `interpreters` por `drive_folder_id`. Una carpeta sin intérprete se registra como alerta, no se procesa.
+1. Listar las subcarpetas de `DRIVE_ROOT_FOLDER_ID` y asociarlas a `interpreters` por `drive_folder_id`. Si no hay vínculo, se vincula por el código al inicio del nombre de la carpeta (`T001 - Nombre`) cuando ese intérprete aún no tiene carpeta. Una carpeta sin intérprete se registra como alerta en `worker_runs.alerts`, no se procesa.
 2. Listar imágenes (png, jpg, jpeg, webp, heic) que no existan en `submissions` por `drive_file_id`.
 3. Descargar y calcular sha256. Si el hash ya existe: `status = duplicate`, va a la bandeja.
 4. Subir una copia al bucket con clave `interpreters/<code>/<yyyy-mm>/<drive_file_id>.<ext>`.
-5. Leer con `MODEL_SMALL` usando salida JSON estricta: `{ minutes, work_date, extra_fields, confidence, legible }`. Un dato que no se lee en la imagen va como `null`. Prohibido inferir o completar.
+5. Leer con `MODEL_SMALL` usando salida JSON estricta: `{ minutes, calls, period_start, period_end, portal_interpreter_id, portal_interpreter_name, extra_fields, confidence, legible }`. Un dato que no se lee en la imagen va como `null`. Prohibido inferir o completar.
 6. Validar (reglas abajo). Si la confianza es menor a `CONFIDENCE_THRESHOLD` o falla una regla, repetir con `MODEL_LARGE` y marcar `escalated`. Si sigue dudoso: `needs_review` con el motivo.
 7. Registrar la pasada en `worker_runs`.
 
@@ -70,17 +80,19 @@ El worker es idempotente: correrlo dos veces seguidas no duplica nada. Un archiv
 
 Todas mandan a `needs_review`; ninguna corrige sola.
 
-- `minutes` es null, negativo o mayor que `MAX_MINUTES_PER_DAY`.
-- `work_date` es null, futura o de hace más de 14 días.
-- Mismo sha256 que otra imagen (duplicado exacto).
-- Mismo intérprete y misma `work_date` ya registrada (posible duplicado).
+- `minutes` es null, negativo o mayor que `MAX_MINUTES_PER_DAY` × días del rango.
+- `period_start` o `period_end` es null, futuro, o `period_end` es de hace más de 14 días.
+- El rango no coincide con la regla de entrega (ej. regla diaria y el screenshot cubre varios días).
+- `portal_interpreter_id` no coincide con `interpreters.portal_id` (si el intérprete tiene uno cargado).
+- Mismo sha256 que otra imagen (duplicado exacto; lo marca el worker sin IA).
+- Mismo intérprete y rango que se superpone con otra lectura ya registrada (posible doble conteo).
 - Valor más de 3 veces la mediana de ese intérprete en los últimos 30 días.
 
 ## Entregas y atrasos
 
 Para cada intérprete activo y cada día exigido por la regla, en la zona horaria de la regla:
 
-- `entregado`: hay una submission con esa `work_date`, subida antes de la hora límite.
+- `entregado`: hay una submission cuyo rango (`period_start`–`period_end`) cubre ese día, subida antes de la hora límite.
 - `atrasado`: llegó después de la hora límite.
 - `falta`: no hay nada y la hora límite ya pasó.
 - `en revisión`: la única submission de ese día está en `needs_review`.
@@ -121,5 +133,6 @@ Días de atraso = días exigidos consecutivos, hasta hoy, en estado `falta`. Fer
 - Regla de entrega: frecuencia, hora límite, zona horaria, días exigidos y feriados.
 - Lista real de intérpretes y sus correos.
 - Campos extra que importan además de los minutos.
-- 10–20 screenshots reales con el valor correcto anotado.
-- Si su plataforma exporta minutos o tiene API (cambiaría la fuente de datos).
+- 10–20 screenshots reales con el valor correcto anotado. Hay 4 de prueba en `fixtures/real/` con su `expected.csv` (local, nunca en GitHub).
+- ID de portal de Propio de cada intérprete.
+- Si Propio le entrega a DGM un reporte de minutos por intérprete (como proveedor), que sería mejor fuente que el screenshot.

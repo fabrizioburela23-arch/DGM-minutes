@@ -3,9 +3,9 @@ import postgres from "postgres";
 import * as schema from "./schema";
 
 export * from "./schema";
-export { count, eq, and, desc, sql } from "drizzle-orm";
+export { count, eq, and, desc, sql, inArray, isNull } from "drizzle-orm";
 export { schema };
-export { seedTestData } from "./seed-data";
+export { seedTestData, TEST_INTERPRETERS, type AnyDb } from "./seed-data";
 
 let cached: ReturnType<typeof createDb> | undefined;
 

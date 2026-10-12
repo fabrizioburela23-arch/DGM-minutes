@@ -8,6 +8,20 @@
       "when": 1791843433447,
       "tag": "0000_inicial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791845600128,
+      "tag": "0001_propio_rango_y_portal",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791845633072,
+      "tag": "0002_worker_alerts",
+      "breakpoints": true
     }
   ]
 }

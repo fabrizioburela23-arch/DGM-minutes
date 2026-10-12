@@ -38,6 +38,8 @@ export const interpreters = pgTable(
     code: text("code").notNull(),
     fullName: text("full_name").notNull(),
     email: text("email"),
+    /** ID del intérprete en el portal de Propio (ej. 63602), para verificar que el screenshot es suyo. */
+    portalId: text("portal_id"),
     driveFolderId: text("drive_folder_id"),
     active: boolean("active").notNull().default(true),
     startDate: date("start_date"),
@@ -85,7 +87,10 @@ export const submissions = pgTable(
   ],
 );
 
-/** Lo que leyó la IA en cada screenshot. Puede haber dos por submission (modelo pequeño y mayor). */
+/**
+ * Lo que leyó la IA en cada screenshot. Puede haber dos por submission (modelo pequeño y mayor).
+ * El portal de Propio muestra totales de un rango de fechas (Start Date – End Date), no de un día.
+ */
 export const readings = pgTable(
   "readings",
   {
@@ -95,7 +100,11 @@ export const readings = pgTable(
       .references(() => submissions.id),
     model: text("model").notNull(),
     minutes: integer("minutes"),
-    workDate: date("work_date"),
+    calls: integer("calls"),
+    periodStart: date("period_start"),
+    periodEnd: date("period_end"),
+    portalInterpreterId: text("portal_interpreter_id"),
+    portalInterpreterName: text("portal_interpreter_name"),
     extraFields: jsonb("extra_fields").$type<Record<string, unknown>>().notNull().default({}),
     confidence: real("confidence"),
     legible: boolean("legible"),
@@ -103,7 +112,7 @@ export const readings = pgTable(
     escalated: boolean("escalated").notNull().default(false),
     createdAt: createdAt(),
   },
-  (t) => [index("readings_submission_idx").on(t.submissionId), index("readings_work_date_idx").on(t.workDate)],
+  (t) => [index("readings_submission_idx").on(t.submissionId), index("readings_period_idx").on(t.periodStart, t.periodEnd)],
 );
 
 /** Confirmaciones y correcciones de gerentes. Nunca se borran. */
@@ -141,5 +150,7 @@ export const workerRuns = pgTable("worker_runs", {
   filesSeen: integer("files_seen").notNull().default(0),
   filesNew: integer("files_new").notNull().default(0),
   filesFailed: integer("files_failed").notNull().default(0),
+  /** Avisos que no detienen la pasada (ej. carpeta sin intérprete). Solo IDs y nombres de carpeta. */
+  alerts: jsonb("alerts").$type<string[]>().notNull().default([]),
   error: text("error"),
 });
