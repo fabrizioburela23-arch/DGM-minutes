@@ -1,0 +1,19 @@
+# Dependencias y builds
+node_modules/
+.next/
+dist/
+*.tsbuildinfo
+
+# Claves: nunca se suben
+.env
+.env.*
+!.env.example
+*-credentials.json
+service-account*.json
+dgm-minutos-*.json
+
+# Screenshots reales de DGM (datos personales)
+fixtures/real/
+
+# Sistema
+.DS_Store

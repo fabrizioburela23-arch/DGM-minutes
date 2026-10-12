@@ -1,0 +1,18 @@
+{
+  "name": "dgm-minutes",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp"]
+  },
+  "scripts": {
+    "dev": "pnpm --filter @dgm/web dev",
+    "build": "pnpm --filter @dgm/web build",
+    "start": "pnpm --filter @dgm/web start",
+    "worker": "pnpm --filter @dgm/worker start",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

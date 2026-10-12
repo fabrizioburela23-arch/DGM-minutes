@@ -1,0 +1,17 @@
+{
+  "name": "@dgm/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dgm/core": "workspace:*",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.9.0"
+  }
+}
