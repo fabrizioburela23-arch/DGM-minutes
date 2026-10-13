@@ -142,6 +142,18 @@ export const managers = pgTable("managers", {
   createdAt: createdAt(),
 });
 
+/** Resultado de cada evaluación de precisión de la IA (una por versión desplegada). Sin datos personales. */
+export const evalRuns = pgTable(
+  "eval_runs",
+  {
+    id: serial("id").primaryKey(),
+    commitSha: text("commit_sha").notNull(),
+    createdAt: createdAt(),
+    summary: jsonb("summary").notNull(),
+  },
+  (t) => [uniqueIndex("eval_runs_commit_uq").on(t.commitSha)],
+);
+
 /** Registro de cada pasada del worker. */
 export const workerRuns = pgTable("worker_runs", {
   id: serial("id").primaryKey(),

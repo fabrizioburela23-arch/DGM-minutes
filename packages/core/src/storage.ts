@@ -4,6 +4,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 /** Lo mínimo que el sistema necesita del bucket de imágenes. */
 export interface ObjectStore {
   put(key: string, body: Buffer, contentType: string): Promise<void>;
+  get(key: string): Promise<Buffer>;
 }
 
 function requireEnv(name: string): string {
@@ -31,6 +32,12 @@ export class S3ObjectStore implements ObjectStore {
 
   async put(key: string, body: Buffer, contentType: string): Promise<void> {
     await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }));
+  }
+
+  async get(key: string): Promise<Buffer> {
+    const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    if (!res.Body) throw new Error(`Objeto vacío: ${key}`);
+    return Buffer.from(await res.Body.transformToByteArray());
   }
 
   /** URL temporal para ver una imagen privada (el dashboard la usará en el hito 5). */

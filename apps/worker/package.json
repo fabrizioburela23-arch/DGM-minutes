@@ -4,8 +4,9 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
-    "test": "tsx src/pass.test.ts",
-    "typecheck": "tsc --noEmit"
+    "test": "tsx src/pass.test.ts && tsx src/read-pending.test.ts",
+    "typecheck": "tsc --noEmit",
+    "eval": "tsx src/eval-local.ts"
   },
   "dependencies": {
     "@dgm/core": "workspace:*",

@@ -7,19 +7,24 @@
   "exports": {
     ".": "./src/index.ts",
     "./drive": "./src/drive.ts",
-    "./storage": "./src/storage.ts"
+    "./storage": "./src/storage.ts",
+    "./reader": "./src/reader.ts",
+    "./validate": "./src/validate.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx src/validate.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1150.0",
     "@aws-sdk/s3-request-presigner": "^3.1150.0",
     "@googleapis/drive": "^26.0.2",
-    "google-auth-library": "^11.3.0"
+    "google-auth-library": "^11.3.0",
+    "@anthropic-ai/sdk": "^0.133.0"
   },
   "devDependencies": {
     "@types/node": "^22",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "tsx": "^4.23.15"
   }
 }

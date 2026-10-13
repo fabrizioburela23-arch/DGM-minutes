@@ -3,7 +3,7 @@ import postgres from "postgres";
 import * as schema from "./schema";
 
 export * from "./schema";
-export { count, eq, and, desc, sql, inArray, isNull } from "drizzle-orm";
+export { count, eq, and, asc, desc, sql, inArray, isNull, ne } from "drizzle-orm";
 export { schema };
 export { seedTestData, TEST_INTERPRETERS, type AnyDb } from "./seed-data";
 

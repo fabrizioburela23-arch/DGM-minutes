@@ -42,6 +42,14 @@ Mantén un `.env.example` con todas, sin valores reales.
 | `MAX_MINUTES_PER_DAY` | Tope de validación. Inicial: `720` |
 | `SEED_TEST_DATA` | `true` carga los 3 intérpretes de prueba en cada despliegue (sin duplicar). Activo en Railway; quitarlo cuando lleguen los datos reales |
 | `SEED_ADMIN_EMAIL` | Opcional: correo que se registra como gerente admin al hacer seed |
+| `READ_BATCH_SIZE` | Máximo de entregas que la IA lee por pasada. Inicial: `25` |
+| `EVAL_EXPECTED` | Solo en `DGM-worker`. Lista JSON `[{file (ID de Drive), minutes, calls, start, end, portalId}]` de screenshots de prueba. Si existe, el worker mide la precisión una vez por versión desplegada y guarda solo porcentajes en `eval_runs` |
+
+## Pruebas y evaluación
+
+- `pnpm test`: pruebas sin red (Postgres en memoria, Drive, bucket e IA simulados). Correrlas antes de cada commit.
+- `pnpm eval`: lee con los dos modelos los screenshots de `fixtures/real/` y los compara con `fixtures/real/expected.csv` (`archivo,portal_id,nombre,inicio,fin,llamadas,minutos`). Necesita `ANTHROPIC_API_KEY` en el `.env` local. Muestra valores en pantalla: solo para uso local.
+- En Railway, la evaluación corre sola con `EVAL_EXPECTED` y deja el resultado en el log del worker (`[eval] …`) y en `eval_runs`.
 
 Para crear una migración nueva: cambiar `packages/db/src/schema.ts`, correr `pnpm --filter @dgm/db generate` y probar con `pnpm --filter @dgm/db test` (Postgres en memoria).
 
@@ -54,6 +62,7 @@ Para crear una migración nueva: cambiar `packages/db/src/schema.ts`, correr `pn
 - `reviews`: id, submission_id, reviewer_email, action (`confirm` | `correct` | `reject`), old_values, new_values, note, created_at. Nunca se borran.
 - `managers`: email, name, role (`manager` | `admin`), active.
 - `worker_runs`: started_at, finished_at, files_seen, files_new, files_failed, alerts (jsonb), error.
+- `eval_runs`: commit_sha (único), created_at, summary (jsonb: % de aciertos por campo y modelo, sin datos personales).
 
 ## Qué muestran los screenshots (portal de Propio)
 

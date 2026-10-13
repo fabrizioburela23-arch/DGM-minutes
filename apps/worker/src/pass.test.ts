@@ -33,6 +33,9 @@ class FakeStore implements ObjectStore {
   async put(key: string) {
     this.keys.push(key);
   }
+  async get(): Promise<Buffer> {
+    return Buffer.alloc(0);
+  }
 }
 
 const img = (id: string, name: string, createdTime = "2026-10-07T15:00:00Z"): DriveImage => ({

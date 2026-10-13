@@ -6,13 +6,18 @@
     "node": ">=20"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "sharp"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
   },
   "scripts": {
     "dev": "pnpm --filter @dgm/web dev",
     "build": "pnpm --filter @dgm/web build",
     "start": "pnpm --filter @dgm/web start",
     "worker": "pnpm --filter @dgm/worker start",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "eval": "pnpm --filter @dgm/worker eval",
+    "test": "pnpm -r test"
   }
 }
