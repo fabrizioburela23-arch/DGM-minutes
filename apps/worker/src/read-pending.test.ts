@@ -80,6 +80,7 @@ async function main() {
   await add(t2.id, "caida"); // la API falla → queda pendiente
   await add(t1.id, "repetido"); // mismo día que "bueno" → doble conteo
   await add(t3.id, "ajeno"); // ID de Propio distinto al cargado
+  await add(t3.id, "sinescalar"); // el modelo mayor falla → revisión, no reintento infinito
 
   const reader = new FakeReader({
     bueno: { small: {} },
@@ -88,6 +89,7 @@ async function main() {
     caida: { small: "error" },
     repetido: { small: {} },
     ajeno: { small: { portalInterpreterId: "63602" } },
+    sinescalar: { small: { confidence: 0.3, periodStart: "2026-10-10", periodEnd: "2026-10-10", portalInterpreterId: "99999" }, large: "error" },
   });
 
   const now = () => new Date("2026-10-12T20:00:00Z");
@@ -108,13 +110,16 @@ async function main() {
   assert.equal(status.ajeno.status, "needs_review");
   assert.match(status.ajeno.reason, /no coincide/);
 
-  // Escalan: dudoso, viejo, repetido y ajeno (todo lo que no sale limpio con el modelo pequeño)
-  assert.deepEqual(result, { read: 2, needsReview: 4, escalated: 4, failed: 1 });
+  assert.equal(status.sinescalar.status, "needs_review");
+  assert.match(status.sinescalar.reason, /Confianza baja.*No se pudo verificar con el modelo mayor/);
+
+  // Escalan con éxito: dudoso, viejo, repetido y ajeno. "sinescalar" intenta y falla.
+  assert.deepEqual(result, { read: 2, needsReview: 5, escalated: 4, failed: 1 });
   assert.ok(!reader.calls.includes("bueno:large"), "lo que sale bien no se escala");
   assert.ok(reader.calls.includes("dudoso:large"));
 
   const saved = await db.select().from(readings).orderBy(asc(readings.id));
-  assert.equal(saved.length, 9, "5 lecturas pequeñas (la caída y la HEIC no generan lectura) + 4 escaladas");
+  assert.equal(saved.length, 10, "6 lecturas pequeñas (la caída y la HEIC no generan lectura) + 4 escaladas");
   assert.ok(saved.filter((r) => r.escalated).every((r) => r.model === "large"));
 
   // Evaluación: una sola vez por versión

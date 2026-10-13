@@ -132,10 +132,17 @@ export async function readPending(deps: {
       let reasons = validateReading(first.reading, context);
 
       if (reasons.length > 0) {
-        const second = await reader.read(image, mime, settings.modelLarge);
-        await saveReading(db, sub.id, second.model, second.reading, second.raw, true);
-        reasons = validateReading(second.reading, context);
-        summary.escalated += 1;
+        // Si el modelo mayor falla, no se reintenta en cada pasada (costaría lo mismo una y otra vez):
+        // la entrega va a revisión con lo que vio el modelo pequeño.
+        try {
+          const second = await reader.read(image, mime, settings.modelLarge);
+          await saveReading(db, sub.id, second.model, second.reading, second.raw, true);
+          reasons = validateReading(second.reading, context);
+          summary.escalated += 1;
+        } catch (error) {
+          reasons = [...reasons, "No se pudo verificar con el modelo mayor"];
+          log(`[worker] escalado de la entrega #${sub.id} falló: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
 
       if (reasons.length === 0) {

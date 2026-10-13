@@ -118,6 +118,8 @@ export function normalizeReading(input: Record<string, unknown>): ScreenshotRead
 /** Lector real con la API de Anthropic y salida estructurada vía herramienta obligatoria. */
 export class ClaudeScreenshotReader implements ScreenshotReader {
   private client: Anthropic;
+  /** Modelos que rechazan tool_choice forzado; con ellos se usa "auto" y la instrucción del sistema. */
+  private autoChoiceModels = new Set<string>();
 
   constructor(apiKey = process.env.ANTHROPIC_API_KEY) {
     if (!apiKey) throw new Error("Falta ANTHROPIC_API_KEY");
@@ -126,19 +128,29 @@ export class ClaudeScreenshotReader implements ScreenshotReader {
 
   async read(image: Buffer, mimeType: string, model: string): Promise<ReadResult> {
     if (!isSupportedImage(mimeType)) throw new Error(`Formato de imagen no soportado: ${mimeType}`);
+    try {
+      return await this.request(image, mimeType, model, !this.autoChoiceModels.has(model));
+    } catch (error) {
+      const forcedRejected = error instanceof Anthropic.BadRequestError && /tool_choice/i.test(error.message);
+      if (!forcedRejected || this.autoChoiceModels.has(model)) throw error;
+      this.autoChoiceModels.add(model);
+      return this.request(image, mimeType, model, false);
+    }
+  }
 
+  private async request(image: Buffer, mimeType: SupportedImageType, model: string, forceTool: boolean): Promise<ReadResult> {
     const response = await this.client.messages.create({
       model,
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: READING_INSTRUCTIONS,
       tools: [{ name: TOOL_NAME, description: "Registra los datos leídos del screenshot.", input_schema: TOOL_SCHEMA }],
-      tool_choice: { type: "tool", name: TOOL_NAME },
+      tool_choice: forceTool ? { type: "tool", name: TOOL_NAME } : { type: "auto" },
       messages: [
         {
           role: "user",
           content: [
             { type: "image", source: { type: "base64", media_type: mimeType, data: image.toString("base64") } },
-            { type: "text", text: "Lee este screenshot y registra los datos." },
+            { type: "text", text: `Lee este screenshot y registra los datos llamando a la herramienta ${TOOL_NAME}.` },
           ],
         },
       ],
