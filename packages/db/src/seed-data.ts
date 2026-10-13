@@ -36,3 +36,20 @@ export async function seedTestData(db: AnyDb, options: { adminEmail?: string } =
       .onConflictDoNothing({ target: managers.email });
   }
 }
+
+/** Separa una lista de correos escrita con comas, espacios o saltos de línea. */
+export function parseEmailList(raw: string | undefined): string[] {
+  return [...new Set((raw ?? "").split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@")))];
+}
+
+/**
+ * Registra gerentes autorizados al dashboard. Solo agrega: si un gerente ya existe (o fue desactivado
+ * desde el dashboard), no se toca, para que el despliegue no deshaga cambios hechos a mano.
+ */
+export async function seedManagers(db: AnyDb, emails: string[], role: "manager" | "admin") {
+  if (emails.length === 0) return;
+  await db
+    .insert(managers)
+    .values(emails.map((email) => ({ email, role })))
+    .onConflictDoNothing({ target: managers.email });
+}

@@ -40,6 +40,8 @@ Mantén un `.env.example` con todas, sin valores reales.
 | `APP_TIMEZONE` | Zona horaria por defecto: `America/La_Paz` hasta que DGM confirme |
 | `CONFIDENCE_THRESHOLD` | Umbral para escalar al modelo mayor. Inicial: `0.85` |
 | `MAX_MINUTES_PER_DAY` | Tope de validación. Inicial: `720` |
+| `ADMIN_EMAILS` / `MANAGER_EMAILS` | Correos (separados por comas) que se agregan como administradores / gerentes en cada despliegue. Solo agregan: quitar el acceso se hace en la página Gerentes |
+| `DEV_LOGIN_EMAIL` | Solo local con `next dev`: entra como ese correo sin Google. Ignorado en producción |
 | `SEED_TEST_DATA` | `true` carga los 3 intérpretes de prueba en cada despliegue (sin duplicar). Activo en Railway; quitarlo cuando lleguen los datos reales |
 | `SEED_ADMIN_EMAIL` | Opcional: correo que se registra como gerente admin al hacer seed |
 | `READ_BATCH_SIZE` | Máximo de entregas que la IA lee por pasada. Inicial: `25` |
@@ -50,6 +52,8 @@ Mantén un `.env.example` con todas, sin valores reales.
 - `pnpm test`: pruebas sin red (Postgres en memoria, Drive, bucket e IA simulados). Correrlas antes de cada commit.
 - `pnpm eval`: lee con los dos modelos los screenshots de `fixtures/real/` y los compara con `fixtures/real/expected.csv` (`archivo,portal_id,nombre,inicio,fin,llamadas,minutos`). Necesita `ANTHROPIC_API_KEY` en el `.env` local. Muestra valores en pantalla: solo para uso local.
 - En Railway, la evaluación corre sola con `EVAL_EXPECTED` y deja el resultado en el log del worker (`[eval] …`) y en `eval_runs`.
+
+Para ver el dashboard en local: Postgres local en `DATABASE_URL`, `pnpm --filter @dgm/db migrate`, y `DEV_LOGIN_EMAIL=<correo de un gerente> pnpm dev`.
 
 Para crear una migración nueva: cambiar `packages/db/src/schema.ts`, correr `pnpm --filter @dgm/db generate` y probar con `pnpm --filter @dgm/db test` (Postgres en memoria).
 
@@ -121,6 +125,10 @@ Días de atraso = días exigidos consecutivos, hasta hoy, en estado `falta`. Fer
 - **Bandeja de revisión**: confirmar, corregir o rechazar; cada acción se guarda en `reviews`.
 - **Descargar Excel** en cada vista, con los filtros aplicados.
 - Los totales usan solo lecturas `read` o `confirmed`; lo que está en revisión se muestra aparte.
+- Implementación: lógica de entregas/atrasos en `packages/core/src/deliveries.ts`; consultas en `apps/web/lib/data.ts`; revisiones en `apps/web/lib/reviews.ts` (corregir = nueva lectura con `model = "manual"` + fila en `reviews`); Excel en `apps/web/lib/excel.ts` (`/api/excel/<vista>`). Los valores vigentes de una entrega son su última lectura.
+- Un screenshot de varios días cuenta para todos los días de su rango en Entregas/Atrasos, y en Minutos se suma en la fecha final del rango.
+- La hora límite de un día exigido es ese mismo día a `deadline_time` (pendiente de confirmar con DGM). Antes de `start_date` del intérprete (o de su fecha de alta) no se exige nada.
+- Página **Gerentes** (solo admin): agregar correos y quitar/devolver acceso.
 
 ## Seguridad
 

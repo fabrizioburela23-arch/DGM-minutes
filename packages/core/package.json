@@ -9,11 +9,12 @@
     "./drive": "./src/drive.ts",
     "./storage": "./src/storage.ts",
     "./reader": "./src/reader.ts",
-    "./validate": "./src/validate.ts"
+    "./validate": "./src/validate.ts",
+    "./deliveries": "./src/deliveries.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/validate.test.ts"
+    "test": "tsx src/validate.test.ts && tsx src/deliveries.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1150.0",

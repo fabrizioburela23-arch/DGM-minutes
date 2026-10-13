@@ -5,7 +5,7 @@ import { count, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import * as schema from "./schema";
-import { seedTestData, TEST_INTERPRETERS } from "./seed-data";
+import { parseEmailList, seedManagers, seedTestData, TEST_INTERPRETERS } from "./seed-data";
 
 /** Prueba local sin servidor: aplica migraciones y seed en un Postgres en memoria (PGlite). */
 async function main() {
@@ -30,6 +30,14 @@ async function main() {
   const admins = await db.select().from(schema.managers);
   assert.equal(admins.length, 1);
   assert.equal(admins[0].email, "admin@example.com");
+
+  // Gerentes desde variables: sin duplicar y sin reactivar a quien se desactivó
+  assert.deepEqual(parseEmailList(" A@x.com, b@x.com\nb@x.com;nocorreo "), ["a@x.com", "b@x.com"]);
+  await seedManagers(db, ["a@x.com", "b@x.com"], "manager");
+  await db.update(schema.managers).set({ active: false }).where(eq(schema.managers.email, "b@x.com"));
+  await seedManagers(db, ["a@x.com", "b@x.com"], "manager");
+  const [b] = await db.select().from(schema.managers).where(eq(schema.managers.email, "b@x.com"));
+  assert.equal(b.active, false);
 
   // Un archivo de Drive no puede registrarse dos veces.
   const [first] = await db.select().from(schema.interpreters).where(eq(schema.interpreters.code, "T001"));
