@@ -131,6 +131,17 @@ Días de atraso = días exigidos consecutivos, hasta hoy, en estado `falta`. Fer
 - La hora límite de un día exigido es ese mismo día a `deadline_time` (pendiente de confirmar con DGM). Antes de `start_date` del intérprete (o de su fecha de alta) no se exige nada.
 - Página **Gerentes** (solo admin): agregar correos y quitar/devolver acceso.
 
+## Producción (hito 6)
+
+- Cron del worker: `*/15 * * * *` en `DGM-worker` (Railway).
+- Copias de la base: copias del volumen de Postgres en Railway (pestaña Backups del servicio Postgres): diaria (se guarda 6 días), semanal (27 días) y mensual (89 días). Para restaurar: Postgres → Backups → elegir copia → Restore. Las copias viven dentro de Railway; no hay copia fuera de Railway.
+- Aviso de fallas en el dashboard (`apps/web/lib/worker-health.ts`, se ve en todas las páginas):
+  - error si las dos últimas pasadas terminadas fallaron (`worker_runs.error`, pasada colgada más de 20 min, o todos los archivos fallaron);
+  - error si no hay pasadas en 45 min (el cron se detuvo);
+  - advertencia si hay screenshots `pending` hace más de 1 hora (saldo o clave de Anthropic).
+- El worker anota en `worker_runs.error` los fallos de la lectura con IA (`recordRunError`), además de los de Drive.
+- Pie de página: hora de la última revisión de Drive.
+
 ## Seguridad
 
 - `.gitignore` incluye `.env*` (menos `.env.example`), `*.json` de credenciales y `fixtures/real/`.

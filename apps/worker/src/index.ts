@@ -4,7 +4,7 @@ import { ClaudeScreenshotReader } from "@dgm/core/reader";
 import { S3ObjectStore } from "@dgm/core/storage";
 import { closeDb, getDb } from "@dgm/db";
 import { parseExpectedJson, runEvalOnce } from "./eval";
-import { runPass } from "./pass";
+import { recordRunError, runPass } from "./pass";
 import { readPending } from "./read-pending";
 
 /**
@@ -47,7 +47,14 @@ async function main(): Promise<void> {
       batchSize: Number(process.env.READ_BATCH_SIZE || 25),
     },
     log: console.log,
+  }).catch(async (error: unknown) => {
+    await recordRunError(db, result.runId, `Lectura con IA: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
   });
+  if (reading.failed > 0 && reading.read + reading.needsReview === 0) {
+    // Ninguna lectura salió: suele ser falta de saldo o una clave inválida. Queda anotado para el aviso del dashboard.
+    await recordRunError(db, result.runId, `La IA no pudo leer ${reading.failed} screenshot(s)`);
+  }
   console.log(
     `[worker] lectura IA · aceptadas ${reading.read} · a revisión ${reading.needsReview} · escaladas ${reading.escalated} · fallidas ${reading.failed}`,
   );

@@ -6,7 +6,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx lib/data.test.ts"
+    "test": "tsx lib/data.test.ts && tsx lib/worker-health.test.ts"
   },
   "dependencies": {
     "@dgm/core": "workspace:*",

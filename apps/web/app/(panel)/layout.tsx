@@ -4,12 +4,14 @@ import { signOut } from "@/auth";
 import { Nav } from "@/components/nav";
 import { countSubmissions, INBOX } from "@/lib/data";
 import { requireManager } from "@/lib/session";
+import { loadWorkerHealth } from "@/lib/worker-health";
+import { WorkerBanner, WorkerFooter } from "@/components/worker-status";
 
 export const dynamic = "force-dynamic";
 
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
   const manager = await requireManager();
-  const inbox = await countSubmissions(getDb(), INBOX);
+  const [inbox, health] = await Promise.all([countSubmissions(getDb(), INBOX), loadWorkerHealth(getDb())]);
 
   async function logout() {
     "use server";
@@ -41,7 +43,11 @@ export default async function PanelLayout({ children }: { children: React.ReactN
           <Nav items={items} />
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-6">
+        <WorkerBanner health={health} />
+        {children}
+      </main>
+      <WorkerFooter health={health} />
     </div>
   );
 }

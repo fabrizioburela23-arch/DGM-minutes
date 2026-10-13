@@ -7,7 +7,7 @@ import { interpreters, schema, seedTestData, submissions, workerRuns } from "@dg
 import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { codeFromFolderName, runPass, storageKey } from "./pass";
+import { codeFromFolderName, recordRunError, runPass, storageKey } from "./pass";
 
 class FakeDrive implements DriveSource {
   constructor(
@@ -126,6 +126,11 @@ async function main() {
   await assert.rejects(runPass({ db, drive: failingDrive, store, rootFolderId: "root" }));
   const [last] = await db.select().from(workerRuns).where(eq(workerRuns.id, runs[1].id + 1));
   assert.equal(last.error, "sin acceso a Drive");
+
+  // Errores posteriores (IA) se suman al de la pasada sin borrarlo
+  await recordRunError(db, last.id, "La IA no pudo leer 2 screenshot(s)");
+  const [annotated] = await db.select().from(workerRuns).where(eq(workerRuns.id, last.id));
+  assert.equal(annotated.error, "sin acceso a Drive · La IA no pudo leer 2 screenshot(s)");
 
   console.log("[pass.test] OK: vinculación, duplicados, fallos aislados, idempotencia y registro de pasadas");
   await client.close();

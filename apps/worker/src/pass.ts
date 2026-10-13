@@ -155,3 +155,10 @@ export async function runPass(deps: {
     throw error;
   }
 }
+
+/** Anota un problema en la pasada (sin borrar lo que ya tenía) para que el dashboard pueda avisar. Solo IDs, nunca datos personales. */
+export async function recordRunError(db: AnyDb, runId: number, message: string): Promise<void> {
+  const [run] = await db.select({ error: workerRuns.error }).from(workerRuns).where(eq(workerRuns.id, runId));
+  const error = run?.error ? `${run.error} · ${message}` : message;
+  await db.update(workerRuns).set({ error }).where(eq(workerRuns.id, runId));
+}
