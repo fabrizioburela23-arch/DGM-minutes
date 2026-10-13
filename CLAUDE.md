@@ -36,7 +36,8 @@ Mantén un `.env.example` con todas, sin valores reales.
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | JSON completo de la cuenta de servicio. Acepta JSON crudo o en base64 |
 | `DRIVE_ROOT_FOLDER_ID` | ID de la carpeta raíz de DGM en Drive |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Bucket de imágenes en Railway. Ya configuradas en el servicio `DGM-minutes` como referencias al bucket `coordinated-drawer` |
-| `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Login de gerentes con Google (hito 5) |
+| `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Login de gerentes con Google (hito 5). Cliente OAuth "DGM Minutos web" en el proyecto `dgm-minutos`, en modo prueba (solo usuarios de prueba de Google Cloud) |
+| `AUTH_URL` | Opcional. URL pública del dashboard. Si falta, se arma con `RAILWAY_PUBLIC_DOMAIN` (sin esto Auth.js usa localhost:8080 detrás del proxy y Google responde `redirect_uri_mismatch`) |
 | `APP_TIMEZONE` | Zona horaria por defecto: `America/La_Paz` hasta que DGM confirme |
 | `CONFIDENCE_THRESHOLD` | Umbral para escalar al modelo mayor. Inicial: `0.85` |
 | `MAX_MINUTES_PER_DAY` | Tope de validación. Inicial: `720` |
