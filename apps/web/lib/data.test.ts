@@ -93,6 +93,9 @@ async function main() {
   assert.deepEqual(minutes.inReview, { minutes: 300, deliveries: 1 });
   assert.equal(minutes.ranking[0].interpreter.code, "T002");
   assert.deepEqual(minutes.periods.map((p) => p.key), ["2026-10-05", "2026-10-06", "2026-10-08"], "rango 7–8 cuenta en el 8");
+  await db.update(interpreters).set({ active: false }).where(eq(interpreters.id, t2.id));
+  assert.equal((await minutesReport(db, "2026-10-01", "2026-10-31", "dia")).inReview.deliveries, 0, "igual que la bandeja: sin dados de baja");
+  await db.update(interpreters).set({ active: true }).where(eq(interpreters.id, t2.id));
 
   // Revisiones
   assert.equal((await applyReview(db, "g@x.com", { action: "confirm", submissionId: dupId })).ok, false, "sin lectura no se confirma");

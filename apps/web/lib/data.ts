@@ -400,7 +400,9 @@ export async function minutesReport(db: AnyDb, from: string, to: string, groupin
   const accepted = subs.filter(
     (s) => ACCEPTED.includes(s.status) && s.minutes !== null && s.interpreterId !== null && (!cumulative || isMonthToDate(s)),
   );
-  const review = subs.filter((s) => s.status === "needs_review");
+  // Igual que la bandeja de Revisión: no se cuentan los pendientes de intérpretes dados de baja.
+  const inactive = new Set(people.filter((p) => !p.active).map((p) => p.id));
+  const review = subs.filter((s) => s.status === "needs_review" && (s.interpreterId === null || !inactive.has(s.interpreterId)));
 
   const pivotBuckets = cumulative ? cumulativeBuckets(accepted, grouping) : summedBuckets(accepted, grouping);
   const byPeriod = new Map<string, { key: string; minutes: number; calls: number }>();
