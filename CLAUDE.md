@@ -45,6 +45,8 @@ Mantén un `.env.example` con todas, sin valores reales.
 | `DEV_LOGIN_EMAIL` | Solo local con `next dev`: entra como ese correo sin Google. Ignorado en producción |
 | `SEED_TEST_DATA` | `true` carga los 3 intérpretes de prueba en cada despliegue (sin duplicar). Activo en Railway; quitarlo cuando lleguen los datos reales |
 | `SEED_ADMIN_EMAIL` | Opcional: correo que se registra como gerente admin al hacer seed |
+| `DRIVE_LAYOUT` | Solo en `DGM-worker`. `form` = una sola carpeta (la del Google Form de DGM, archivos "captura - Nombre.png"); `folders` (por defecto) = una subcarpeta por intérprete |
+| `DRIVE_SINCE` | Solo en `DGM-worker`. AAAA-MM-DD: ignora archivos de Drive creados antes (para no cargar el historial). Inicial: `2026-10-01` |
 | `READ_BATCH_SIZE` | Máximo de entregas que la IA lee por pasada. Inicial: `25` |
 | `EVAL_EXPECTED` | Solo en `DGM-worker`. Lista JSON `[{file (ID de Drive), minutes, calls, start, end, portalId}]` de screenshots de prueba. Si existe, el worker mide la precisión una vez por versión desplegada y guarda solo porcentajes en `eval_runs` |
 
@@ -60,9 +62,9 @@ Para crear una migración nueva: cambiar `packages/db/src/schema.ts`, correr `pn
 
 ## Modelo de datos
 
-- `interpreters`: id, code (código interno DGM), full_name, email, portal_id (ID en el portal de Propio), drive_folder_id, active, start_date, notes.
-- `delivery_rules`: frequency (`daily` | `weekly`), deadline_time, timezone, required_weekdays, holidays (lista de fechas). Una regla activa por ahora.
-- `submissions`: id, interpreter_id, drive_file_id (único), file_name, drive_created_at, detected_at, sha256, storage_key, status (`pending` | `read` | `needs_review` | `confirmed` | `rejected` | `duplicate`), review_reason.
+- `interpreters`: id, code (ID de Propio si lo tiene; si no `N001`…), full_name, company (C-tel, Simplified, Interpredia), aliases (nombres con los que sube al Form), email, portal_id (ID en el portal de Propio), drive_folder_id, active, start_date, notes.
+- `delivery_rules`: frequency (`daily` | `weekly` | `semimonthly`, texto), deadline_time, deadline_offset_days, timezone, required_weekdays, holidays. Una regla activa: **quincenal** (confirmado por DGM el 14 oct 2026), plazo 1 día después de cada corte a las 23:59 (plazo y hora pendientes de confirmar).
+- `submissions`: id, interpreter_id (puede ser null hasta identificar al dueño), uploader_name (nombre que agrega Google Forms), drive_file_id (único), file_name, drive_created_at, detected_at, sha256, storage_key, status (`pending` | `read` | `needs_review` | `confirmed` | `rejected` | `duplicate`), review_reason.
 - `readings`: id, submission_id, model, minutes, calls, period_start, period_end, portal_interpreter_id, portal_interpreter_name, extra_fields (jsonb), confidence (0–1), legible (bool), raw_response (jsonb), escalated (bool), created_at.
 - `reviews`: id, submission_id, reviewer_email, action (`confirm` | `correct` | `reject`), old_values, new_values, note, created_at. Nunca se borran.
 - `managers`: email, name, role (`manager` | `admin`), active.
@@ -79,7 +81,16 @@ Los intérpretes de DGM trabajan en `interpreters.propio-ls.com/portal`. El scre
 
 Consecuencias: la IA lee `minutes`, `calls`, `period_start`, `period_end`, `portal_interpreter_id` y `portal_interpreter_name`. El ID de portal se compara con `interpreters.portal_id` para detectar screenshots de otra persona.
 
+## Cómo trabaja DGM hoy (visto en su Drive el 14 oct 2026)
+
+- Los intérpretes suben el screenshot con un **Google Form**. Los archivos caen todos en la carpeta "Minute report (File responses)" → "Google Forms" (ID `1QGSGnBpw26H3MkopaIa8gcSa8JH6l8-LZixVaQtegWR5k5MQoX7sVtvSpyFjEm5EHDsT02Im`), con nombre "<original> - <nombre que escribió>.ext". La carpeta está compartida con `dgm-drive-lector`.
+- Tres grupos, todos en Propio: C-tel y Simplified (hoja "Ctel-Simplified Minute report sheet 2026", con Interpreter ID) e Interpredia (hoja "Interpredia report sheet 2026", sin ID). "Agent List" está desactualizada.
+- Reportan **cada 15 días** el **acumulado del mes** (Start Date = 1): uno al día 15 y otro con el mes completo. Hoy alguien copia esos números a mano en las hojas.
+- El nombre del archivo no identifica bien (apodos, faltas de ortografía): manda el **ID de Propio** que lee la IA. El nombre es una pista y se aprende como alias al confirmar.
+
 ## Flujo del worker (una pasada)
+
+Con `DRIVE_LAYOUT=form` el paso 1 es: listar las imágenes de la carpeta del Form (desde `DRIVE_SINCE`), tomar el nombre del archivo y buscarlo entre nombres y alias (solo si hay una coincidencia exacta). Al leer con IA, si el ID de Propio coincide con un intérprete activo, ese es el dueño; si no hay dueño, va a revisión para asignarlo a mano. Si el nombre y el ID apuntan a personas distintas, va a revisión.
 
 1. Listar las subcarpetas de `DRIVE_ROOT_FOLDER_ID` y asociarlas a `interpreters` por `drive_folder_id`. Si no hay vínculo, se vincula por el código al inicio del nombre de la carpeta (`T001 - Nombre`) cuando ese intérprete aún no tiene carpeta. Una carpeta sin intérprete se registra como alerta en `worker_runs.alerts`, no se procesa.
 2. Listar imágenes (png, jpg, jpeg, webp, heic) que no existan en `submissions` por `drive_file_id`.
@@ -97,10 +108,11 @@ Todas mandan a `needs_review`; ninguna corrige sola.
 
 - `minutes` es null, negativo o mayor que `MAX_MINUTES_PER_DAY` × días del rango.
 - `period_start` o `period_end` es null, futuro, o `period_end` es de hace más de 14 días.
-- El rango no coincide con la regla de entrega (ej. regla diaria y el screenshot cubre varios días).
+- El rango no coincide con la regla de entrega (ej. regla diaria y el screenshot cubre varios días; regla quincenal y el rango no empieza el día 1 o abarca dos meses).
+- Sin intérprete identificado (ID de Propio desconocido o ilegible).
 - `portal_interpreter_id` no coincide con `interpreters.portal_id` (si el intérprete tiene uno cargado).
 - Mismo sha256 que otra imagen (duplicado exacto; lo marca el worker sin IA).
-- Mismo intérprete y rango que se superpone con otra lectura ya registrada (posible doble conteo).
+- Mismo intérprete y rango que se superpone con otra lectura ya registrada (posible doble conteo). Con la regla quincenal los acumulados del mismo mes se superponen a propósito: se marca solo el mismo rango repetido, o un acumulado posterior con menos minutos.
 - Valor más de 3 veces la mediana de ese intérprete en los últimos 30 días.
 
 ## Entregas y atrasos
@@ -113,6 +125,8 @@ Para cada intérprete activo y cada día exigido por la regla, en la zona horari
 - `en revisión`: la única submission de ese día está en `needs_review`.
 
 Días de atraso = días exigidos consecutivos, hasta hoy, en estado `falta`. Feriados y días no exigidos no cuentan.
+
+Con la regla quincenal los periodos son quincenas (1–15 y 16–fin de mes): un screenshot cubre una quincena si su rango la abarca entera (el acumulado 1–15 cubre la 1ª, el 1–30/31 cubre las dos). La hora límite es el último día de la quincena + `deadline_offset_days`. Atrasos se cuentan en quincenas. En Minutos, el total del mes es el último acumulado; la 1ª quincena es el acumulado que cierra entre el 15 y el 20; la 2ª es la diferencia (si solo hay total, va entero a la 2ª). Nunca se suman dos acumulados.
 
 ## Dashboard (apps/web)
 
@@ -130,6 +144,7 @@ Días de atraso = días exigidos consecutivos, hasta hoy, en estado `falta`. Fer
 - Un screenshot de varios días cuenta para todos los días de su rango en Entregas/Atrasos, y en Minutos se suma en la fecha final del rango.
 - La hora límite de un día exigido es ese mismo día a `deadline_time` (pendiente de confirmar con DGM). Antes de `start_date` del intérprete (o de su fecha de alta) no se exige nada.
 - Página **Gerentes** (solo admin): agregar correos y quitar/devolver acceso.
+- Página **Intérpretes** (solo admin): importar la lista pegando columnas Nombre, Empresa, ID de Propio (`apps/web/lib/roster.ts`; agrega o completa, nunca borra), editar ID, empresa, alias y fecha de inicio, dar de baja. Al confirmar en Revisión un screenshot de alguien sin ID, el sistema guarda el ID leído y el nombre del Form como alias (`learnIdentity`).
 
 ## Producción (hito 6)
 
@@ -161,8 +176,10 @@ Días de atraso = días exigidos consecutivos, hasta hoy, en estado `falta`. Fer
 ## Pendientes de DGM (no inventar)
 
 - Regla de entrega: frecuencia, hora límite, zona horaria, días exigidos y feriados.
-- Lista real de intérpretes y sus correos.
+- Confirmar que la pestaña Septiembre de cada hoja es el equipo actual.
+- Plazo exacto de cada corte quincenal (hoy: día 16 y día 1, 23:59).
+- Compartir la hoja de respuestas del Google Form (hora exacta y correo de quien envía).
 - Campos extra que importan además de los minutos.
 - 10–20 screenshots reales con el valor correcto anotado. Hay 4 de prueba en `fixtures/real/` con su `expected.csv` (local, nunca en GitHub).
-- ID de portal de Propio de cada intérprete.
+- ID de portal de Propio de los intérpretes de Interpredia (C-tel y Simplified ya lo tienen en su hoja).
 - Si Propio le entrega a DGM un reporte de minutos por intérprete (como proveedor), que sería mejor fuente que el screenshot.

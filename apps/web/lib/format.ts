@@ -1,4 +1,4 @@
-import { addDays, localDate } from "@dgm/core/deliveries";
+import { addDays, localDate, type Period } from "@dgm/core/deliveries";
 import type { Grouping } from "./data";
 
 const LOCALE = "es-BO";
@@ -35,10 +35,29 @@ export function number(n: number): string {
   return new Intl.NumberFormat(LOCALE).format(n);
 }
 
+const MONTH_SHORT = (month: string) =>
+  new Intl.DateTimeFormat(LOCALE, { month: "short", year: "numeric", timeZone: "UTC" }).format(asDate(`${month}-15`)).replace(".", "");
+
+/** Etiqueta de un grupo de minutos: día, semana ("Semana del 12 oct 2026"), quincena ("1ª quincena · oct 2026") o mes. */
 export function periodLabel(key: string, grouping: Grouping): string {
   if (grouping === "mes") return monthName(key);
   if (grouping === "semana") return `Semana del ${mediumDate(key)}`;
+  if (grouping === "quincena") return `${key.endsWith("-1") ? "1ª" : "2ª"} quincena · ${MONTH_SHORT(key.slice(0, 7))}`;
   return shortDate(key);
+}
+
+/** Encabezado corto de una columna de Entregas: "lun 12", "sem 12 oct", "1ª oct". */
+export function periodShort(p: Period): { top: string; bottom: string } {
+  if (p.kind === "half") return { top: p.key.endsWith("-1") ? "1ª" : "2ª", bottom: MONTH_SHORT(p.start.slice(0, 7)) };
+  if (p.kind === "week") return { top: "sem", bottom: shortDate(p.start).replace(/^\S+\s/, "") };
+  return { top: shortDate(p.start).split(" ")[0].replace(",", "").replace(".", ""), bottom: String(Number(p.start.slice(8))) };
+}
+
+/** Nombre completo de un periodo: "1ª quincena de oct 2026 (1–15)", "lun 12 oct", "semana del 12 oct 2026". */
+export function periodName(p: Period): string {
+  if (p.kind === "half") return `${p.key.endsWith("-1") ? "1ª" : "2ª"} quincena de ${MONTH_SHORT(p.start.slice(0, 7))} (${Number(p.start.slice(8))}–${Number(p.end.slice(8))})`;
+  if (p.kind === "week") return `semana del ${mediumDate(p.start)}`;
+  return shortDate(p.start);
 }
 
 export function currentMonth(timezone: string, now = new Date()): string {
@@ -62,8 +81,8 @@ export function parseDay(value: string | null | undefined, fallback: string): st
   return value && DAY.test(value) && !Number.isNaN(Date.parse(value)) ? value : fallback;
 }
 
-export function parseGrouping(value: string | null | undefined): Grouping {
-  return value === "semana" || value === "mes" ? value : "dia";
+export function parseGrouping(value: string | null | undefined, allowed: Grouping[]): Grouping {
+  return allowed.includes(value as Grouping) ? (value as Grouping) : allowed[0];
 }
 
 /** Por defecto, la vista de minutos muestra del 1 del mes a hoy. */
@@ -77,3 +96,9 @@ export function driveLink(fileId: string): string {
 }
 
 export { addDays };
+
+/** "3 quincenas" / "1 día" según la regla. */
+export function periodUnit(frequency: "daily" | "weekly" | "semimonthly", n: number): string {
+  const [one, many] = frequency === "semimonthly" ? ["quincena", "quincenas"] : frequency === "weekly" ? ["semana", "semanas"] : ["día", "días"];
+  return n === 1 ? one : many;
+}

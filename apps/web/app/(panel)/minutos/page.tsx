@@ -1,7 +1,7 @@
 import { getDb } from "@dgm/db";
 import Link from "next/link";
 import { buttonClass, Card, EmptyState, ExcelButton, inputClass, PageHeader, Stat } from "@/components/ui";
-import { loadRule, minutesReport } from "@/lib/data";
+import { GROUPING_LABEL, groupingsFor, loadRule, minutesReport } from "@/lib/data";
 import { minutesFilter, toQuery } from "@/lib/filters";
 import { number, periodLabel } from "@/lib/format";
 
@@ -9,8 +9,8 @@ export default async function MinutosPage({ searchParams }: { searchParams: Prom
   const params = await searchParams;
   const db = getDb();
   const rule = await loadRule(db);
-  const f = minutesFilter(params, rule.timezone);
-  const report = await minutesReport(db, f.from, f.to, f.grouping);
+  const f = minutesFilter(params, rule);
+  const report = await minutesReport(db, f.from, f.to, f.grouping, rule);
   const maxPeriod = Math.max(1, ...report.periods.map((p) => p.minutes));
 
   return (
@@ -33,9 +33,11 @@ export default async function MinutosPage({ searchParams }: { searchParams: Prom
         <label className="flex flex-col gap-1 text-sm">
           Agrupar por
           <select className={inputClass} name="agrupar" defaultValue={f.grouping}>
-            <option value="dia">Día</option>
-            <option value="semana">Semana</option>
-            <option value="mes">Mes</option>
+            {groupingsFor(rule).map((g) => (
+              <option key={g} value={g}>
+                {GROUPING_LABEL[g]}
+              </option>
+            ))}
           </select>
         </label>
         <button className={buttonClass} type="submit">
@@ -49,8 +51,12 @@ export default async function MinutosPage({ searchParams }: { searchParams: Prom
         <Stat label="Screenshots contados" value={number(report.total.deliveries)} />
         <Stat
           label="En revisión (no suma)"
-          value={number(report.inReview.minutes)}
-          hint={`${report.inReview.deliveries} screenshot(s) de este rango en revisión`}
+          value={report.inReview.minutes === null ? number(report.inReview.deliveries) : number(report.inReview.minutes)}
+          hint={
+            report.inReview.minutes === null
+              ? `screenshot(s) esperando revisión${report.unidentified ? ` · ${report.unidentified} sin identificar` : ""}`
+              : `${report.inReview.deliveries} screenshot(s) de este rango en revisión`
+          }
         />
       </div>
 
@@ -75,7 +81,7 @@ export default async function MinutosPage({ searchParams }: { searchParams: Prom
                     <td className="py-2 pr-2 text-slate-500">{i + 1}</td>
                     <td className="py-2 pr-2">
                       <span className="font-medium">{r.interpreter.fullName}</span>{" "}
-                      <span className="text-xs text-slate-500">{r.interpreter.code}</span>
+                      <span className="text-xs text-slate-500">{r.interpreter.company ?? r.interpreter.code}</span>
                     </td>
                     <td className="py-2 pr-2 text-right tabular-nums">{number(r.minutes)}</td>
                     <td className="py-2 text-right tabular-nums">{number(r.calls)}</td>
@@ -87,7 +93,7 @@ export default async function MinutosPage({ searchParams }: { searchParams: Prom
         </Card>
 
         <Card>
-          <h2 className="mb-3 font-medium">Total del equipo por {f.grouping === "dia" ? "día" : f.grouping}</h2>
+          <h2 className="mb-3 font-medium">Total del equipo por {GROUPING_LABEL[f.grouping].toLowerCase()}</h2>
           {report.periods.length === 0 ? (
             <EmptyState>Sin minutos en este rango.</EmptyState>
           ) : (
@@ -108,7 +114,10 @@ export default async function MinutosPage({ searchParams }: { searchParams: Prom
         </Card>
       </div>
       <p className="mt-4 text-xs text-slate-500">
-        Un screenshot que cubre varios días se cuenta en la fecha final de su rango. Para revisar lo pendiente, abre{" "}
+        {report.cumulative
+          ? "Los screenshots son acumulados del mes: el total del mes es el último acumulado, la 1ª quincena es el acumulado al día 15 y la 2ª es la diferencia (si solo hay total, va entero a la 2ª). Nunca se suman dos acumulados."
+          : "Un screenshot que cubre varios días se cuenta en la fecha final de su rango."}{" "}
+        Para revisar lo pendiente, abre{" "}
         <Link className="underline" href="/revision">
           Revisión
         </Link>

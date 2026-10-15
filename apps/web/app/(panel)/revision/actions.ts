@@ -19,9 +19,13 @@ export async function submitReview(_prev: ReviewState, form: FormData): Promise<
   const action = String(form.get("action"));
   const note = String(form.get("note") ?? "");
   if (!Number.isInteger(submissionId)) return { error: "Entrega inválida" };
+  const rawInterpreter = Number(form.get("interpreterId"));
+  const interpreterId = Number.isInteger(rawInterpreter) && rawInterpreter > 0 ? rawInterpreter : null;
 
   let input: ReviewInput;
-  if (action === "confirm" || action === "reject") {
+  if (action === "confirm") {
+    input = { action, submissionId, note, interpreterId };
+  } else if (action === "reject") {
     input = { action, submissionId, note };
   } else if (action === "correct") {
     const minutes = intOrNull(form.get("minutes"));
@@ -32,6 +36,7 @@ export async function submitReview(_prev: ReviewState, form: FormData): Promise<
       action,
       submissionId,
       note,
+      interpreterId,
       values: { minutes, calls, periodStart: String(form.get("periodStart") ?? ""), periodEnd: String(form.get("periodEnd") ?? "") },
     };
   } else {

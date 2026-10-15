@@ -26,7 +26,7 @@ export async function seedTestData(db: AnyDb, options: { adminEmail?: string } =
 
   const existingRules = await db.select({ id: deliveryRules.id }).from(deliveryRules).limit(1);
   if (existingRules.length === 0) {
-    await db.insert(deliveryRules).values({});
+    await db.insert(deliveryRules).values({ frequency: "semimonthly", deadlineOffsetDays: 1 });
   }
 
   if (options.adminEmail) {

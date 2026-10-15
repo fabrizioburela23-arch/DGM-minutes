@@ -1,26 +1,41 @@
 /**
  * Cálculo de entregas y atrasos (ver CLAUDE.md, "Entregas y atrasos").
- * Funciones puras: reciben los datos ya cargados y devuelven el estado de cada intérprete por día.
+ * La regla define periodos (día, semana o quincena); cada periodo tiene una hora límite.
+ * Funciones puras: reciben los datos ya cargados y devuelven el estado de cada intérprete por periodo.
  */
 
+export type Frequency = "daily" | "weekly" | "semimonthly";
+
 export type DeliveryRule = {
-  frequency: "daily" | "weekly";
+  frequency: Frequency;
   /** "HH:MM" o "HH:MM:SS", hora local de la regla. */
   deadlineTime: string;
+  /** Días después del fin del periodo para entregar (0 = el mismo día). */
+  deadlineOffsetDays: number;
   timezone: string;
-  /** 0 = domingo … 6 = sábado. */
+  /** 0 = domingo … 6 = sábado. Solo para la regla diaria. */
   requiredWeekdays: number[];
+  /** Solo para la regla diaria. */
   holidays: string[];
 };
 
 /** Una entrega con sus valores vigentes (última lectura o corrección). */
 export type DeliveryInput = {
-  interpreterId: number;
+  interpreterId: number | null;
   status: "pending" | "read" | "needs_review" | "confirmed" | "rejected" | "duplicate";
   periodStart: string | null;
   periodEnd: string | null;
   /** Momento en que se subió a Drive (o, si falta, cuando el worker la detectó). */
   uploadedAt: Date;
+};
+
+export type Period = {
+  /** Identificador estable: "2026-10-07" (día), "2026-10-05" (semana, su lunes) o "2026-10-1" / "2026-10-2" (quincena). */
+  key: string;
+  kind: "day" | "week" | "half";
+  start: string;
+  end: string;
+  deadline: Date;
 };
 
 export type DayStatus = "entregado" | "atrasado" | "falta" | "en_revision" | "pendiente" | "no_exigido";
@@ -42,6 +57,11 @@ export function addDays(date: string, days: number): string {
 
 export function weekdayOf(date: string): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
+}
+
+export function lastDayOfMonth(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
 }
 
 /** Lista de fechas AAAA-MM-DD entre dos fechas, incluidas. */
@@ -89,33 +109,59 @@ export function isRequiredDay(rule: DeliveryRule, date: string): boolean {
   return rule.requiredWeekdays.includes(weekdayOf(date)) && !rule.holidays.includes(date);
 }
 
-/** Hora límite de un día exigido: ese mismo día a la hora de la regla, en su zona horaria. */
-export function deadlineFor(rule: DeliveryRule, date: string): Date {
-  return zonedToUtc(date, rule.deadlineTime, rule.timezone);
+/** Hora límite de un periodo: su último día + los días de gracia, a la hora de la regla, en su zona horaria. */
+export function deadlineFor(rule: DeliveryRule, periodEnd: string): Date {
+  return zonedToUtc(addDays(periodEnd, rule.deadlineOffsetDays), rule.deadlineTime, rule.timezone);
 }
 
-const covers = (s: DeliveryInput, date: string) =>
-  s.periodStart !== null && s.periodEnd !== null && s.periodStart <= date && date <= s.periodEnd;
+function makePeriod(rule: DeliveryRule, key: string, kind: Period["kind"], start: string, end: string): Period {
+  return { key, kind, start, end, deadline: deadlineFor(rule, end) };
+}
+
+/** Periodos exigidos por la regla que se cruzan con [from, to], en orden. */
+export function periodsBetween(rule: DeliveryRule, from: string, to: string): Period[] {
+  const out: Period[] = [];
+  if (rule.frequency === "daily") {
+    for (const d of dateRange(from, to)) if (isRequiredDay(rule, d)) out.push(makePeriod(rule, d, "day", d, d));
+  } else if (rule.frequency === "weekly") {
+    let monday = addDays(from, -((weekdayOf(from) + 6) % 7));
+    for (; monday <= to; monday = addDays(monday, 7)) out.push(makePeriod(rule, monday, "week", monday, addDays(monday, 6)));
+  } else {
+    for (let month = from.slice(0, 7); month <= to.slice(0, 7); month = addDays(lastDayOfMonth(month), 1).slice(0, 7)) {
+      const halves: [string, string, string][] = [
+        [`${month}-1`, `${month}-01`, `${month}-15`],
+        [`${month}-2`, `${month}-16`, lastDayOfMonth(month)],
+      ];
+      for (const [key, start, end] of halves) if (end >= from && start <= to) out.push(makePeriod(rule, key, "half", start, end));
+    }
+  }
+  return out;
+}
 
 /**
- * Estado de un intérprete en un día:
- * - entregado: una entrega aceptada (read/confirmed) cubre el día y se subió antes de la hora límite.
+ * Una entrega cubre un periodo si su rango (Start Date – End Date) lo abarca entero.
+ * Con la regla quincenal, el acumulado del mes "1–15" cubre la 1ª quincena y "1–31" cubre las dos.
+ */
+export function covers(s: Pick<DeliveryInput, "periodStart" | "periodEnd">, p: Pick<Period, "start" | "end">): boolean {
+  return s.periodStart !== null && s.periodEnd !== null && s.periodStart <= p.start && s.periodEnd >= p.end;
+}
+
+/**
+ * Estado de un intérprete en un periodo:
+ * - entregado: una entrega aceptada (read/confirmed) lo cubre y se subió antes de la hora límite.
  * - atrasado: la entrega aceptada llegó después de la hora límite.
- * - en_revision: lo único que cubre el día está en revisión.
+ * - en_revision: lo único que lo cubre está en revisión.
  * - falta: no hay nada y la hora límite ya pasó.
  * - pendiente: no hay nada pero todavía está a tiempo.
- * - no_exigido: fin de semana, feriado o día no exigido por la regla.
  */
-export function dayStatus(rule: DeliveryRule, date: string, own: DeliveryInput[], now: Date): DayStatus {
-  if (!isRequiredDay(rule, date)) return "no_exigido";
-  const deadline = deadlineFor(rule, date);
-  const covering = own.filter((s) => covers(s, date));
+export function periodStatus(period: Period, own: DeliveryInput[], now: Date): DayStatus {
+  const covering = own.filter((s) => covers(s, period));
   const accepted = covering.filter((s) => s.status === "read" || s.status === "confirmed");
   if (accepted.length > 0) {
-    return accepted.some((s) => s.uploadedAt.getTime() <= deadline.getTime()) ? "entregado" : "atrasado";
+    return accepted.some((s) => s.uploadedAt.getTime() <= period.deadline.getTime()) ? "entregado" : "atrasado";
   }
   if (covering.some((s) => s.status === "needs_review")) return "en_revision";
-  return now.getTime() > deadline.getTime() ? "falta" : "pendiente";
+  return now.getTime() > period.deadline.getTime() ? "falta" : "pendiente";
 }
 
 export type InterpreterLite = { id: number; startDate: string | null; createdAt: Date };
@@ -125,12 +171,12 @@ export function firstRequiredDate(i: InterpreterLite, timezone: string): string 
   return i.startDate ?? localDate(i.createdAt, timezone);
 }
 
-/** Matriz intérprete × día con el estado de cada celda. Antes del inicio del intérprete: no_exigido. */
+/** Matriz intérprete × periodo con el estado de cada uno. Un periodo que termina antes del inicio del intérprete: no_exigido. */
 export function deliveryGrid(
   rule: DeliveryRule,
   people: InterpreterLite[],
   deliveries: DeliveryInput[],
-  days: string[],
+  periods: Period[],
   now: Date,
 ): Map<number, Map<string, DayStatus>> {
   const grid = new Map<number, Map<string, DayStatus>>();
@@ -138,33 +184,35 @@ export function deliveryGrid(
     const own = deliveries.filter((d) => d.interpreterId === person.id);
     const start = firstRequiredDate(person, rule.timezone);
     const row = new Map<string, DayStatus>();
-    for (const day of days) row.set(day, day < start ? "no_exigido" : dayStatus(rule, day, own, now));
+    for (const p of periods) row.set(p.key, p.end < start ? "no_exigido" : periodStatus(p, own, now));
     grid.set(person.id, row);
   }
   return grid;
 }
 
 /**
- * Días de atraso: días exigidos consecutivos, contando hacia atrás desde hoy, en estado "falta".
- * Feriados, días no exigidos y el día de hoy si aún está a tiempo no cortan la racha ni suman.
+ * Periodos de atraso: periodos exigidos consecutivos, contando hacia atrás desde hoy, en estado "falta".
+ * El periodo en curso que aún está a tiempo no corta la racha ni suma.
  */
-export function daysBehind(
+export function periodsBehind(
   rule: DeliveryRule,
   person: InterpreterLite,
   own: DeliveryInput[],
   now: Date,
-  maxLookback = 120,
-): { days: number; since: string | null } {
+  lookbackDays = 120,
+): { count: number; since: string | null } {
+  const today = localDate(now, rule.timezone);
   const start = firstRequiredDate(person, rule.timezone);
-  let day = localDate(now, rule.timezone);
+  const from = addDays(today, -lookbackDays) > start ? addDays(today, -lookbackDays) : start;
+  const periods = periodsBetween(rule, from, today).filter((p) => p.end >= start).reverse();
   let count = 0;
   let since: string | null = null;
-  for (let i = 0; i < maxLookback && day >= start; i++, day = addDays(day, -1)) {
-    const status = dayStatus(rule, day, own, now);
-    if (status === "no_exigido" || status === "pendiente") continue;
+  for (const p of periods) {
+    const status = periodStatus(p, own, now);
+    if (status === "pendiente") continue;
     if (status !== "falta") break;
     count += 1;
-    since = day;
+    since = p.start;
   }
-  return { days: count, since };
+  return { count, since };
 }

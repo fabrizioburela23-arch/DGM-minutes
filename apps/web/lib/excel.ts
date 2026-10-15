@@ -3,7 +3,7 @@ import type { AnyDb } from "@dgm/db";
 import ExcelJS from "exceljs";
 import { deliveriesReport, lateReport, loadInterpreters, loadRule, loadSubmissions, minutesReport, STATUS_LABEL } from "./data";
 import { monthFilter, minutesFilter, screenshotsFilter, type RawParams } from "./filters";
-import { dateTime, driveLink, periodLabel } from "./format";
+import { dateTime, driveLink, periodLabel, periodName, periodUnit } from "./format";
 
 export type ExcelView = "atrasos" | "minutos" | "entregas" | "screenshots";
 export const EXCEL_VIEWS: ExcelView[] = ["atrasos", "minutos", "entregas", "screenshots"];
@@ -30,27 +30,29 @@ export async function buildWorkbook(db: AnyDb, view: ExcelView, params: RawParam
     const ws = sheet(wb, "Atrasos", [
       { header: "Código", key: "code" },
       { header: "Intérprete", key: "name", width: 28 },
-      { header: "Días de atraso hoy", key: "behind" },
+      { header: "Empresa", key: "company" },
+      { header: `${periodUnit(rule.frequency, 2)} sin entregar hoy`.replace(/^./, (c) => c.toUpperCase()), key: "behind" },
       { header: "Atrasado desde", key: "since" },
       { header: "Última entrega", key: "last" },
       { header: "Faltas en el mes", key: "falta" },
       { header: "Atrasadas en el mes", key: "atrasado" },
       { header: "En revisión", key: "revision" },
       { header: "Entregadas a tiempo", key: "entregado" },
-      { header: "Días con falta o atraso", key: "incidents", width: 50 },
+      { header: "Periodos con falta o atraso", key: "incidents", width: 60 },
     ]);
     for (const r of rows) {
       ws.addRow({
         code: r.interpreter.code,
         name: r.interpreter.fullName,
-        behind: r.daysBehind,
+        company: r.interpreter.company ?? "",
+        behind: r.behind,
         since: r.behindSince ?? "",
         last: r.lastDelivery ?? "",
         falta: r.month.falta,
         atrasado: r.month.atrasado,
         revision: r.month.en_revision,
         entregado: r.month.entregado,
-        incidents: r.incidents.map((i) => `${i.date} (${i.status})`).join(", "),
+        incidents: r.incidents.map((i) => `${periodName(i.period)} (${i.status})`).join(", "),
       });
     }
   } else if (view === "entregas") {
@@ -60,17 +62,18 @@ export async function buildWorkbook(db: AnyDb, view: ExcelView, params: RawParam
     const ws = sheet(wb, "Entregas", [
       { header: "Código", key: "code" },
       { header: "Intérprete", key: "name", width: 28 },
-      ...report.days.map((d) => ({ header: d, key: d, width: 12 })),
+      { header: "Empresa", key: "company" },
+      ...report.periods.map((pe) => ({ header: periodName(pe), key: pe.key, width: pe.kind === "half" ? 26 : 12 })),
     ]);
     for (const p of report.people) {
-      const row: Record<string, string> = { code: p.code, name: p.fullName };
-      for (const d of report.days) row[d] = DAY_STATUS_LABEL[report.grid.get(p.id)!.get(d)!];
+      const row: Record<string, string> = { code: p.code, name: p.fullName, company: p.company ?? "" };
+      for (const pe of report.periods) row[pe.key] = DAY_STATUS_LABEL[report.grid.get(p.id)!.get(pe.key)!];
       ws.addRow(row);
     }
   } else if (view === "minutos") {
-    const f = minutesFilter(params, rule.timezone, now);
+    const f = minutesFilter(params, rule, now);
     suffix = `${f.from}_${f.to}`;
-    const report = await minutesReport(db, f.from, f.to, f.grouping);
+    const report = await minutesReport(db, f.from, f.to, f.grouping, rule);
     const ranking = sheet(wb, "Ranking", [
       { header: "Puesto", key: "pos" },
       { header: "Código", key: "code" },
@@ -84,7 +87,7 @@ export async function buildWorkbook(db: AnyDb, view: ExcelView, params: RawParam
     );
     ranking.addRow({});
     ranking.addRow({ name: "Total del equipo", minutes: report.total.minutes, calls: report.total.calls, deliveries: report.total.deliveries }).font = { bold: true };
-    ranking.addRow({ name: "En revisión (no suma)", minutes: report.inReview.minutes, deliveries: report.inReview.deliveries });
+    ranking.addRow({ name: "En revisión (no suma)", minutes: report.inReview.minutes ?? "", deliveries: report.inReview.deliveries });
 
     const keys = report.periods.map((p) => p.key);
     const pivot = sheet(wb, "Por periodo", [
@@ -106,7 +109,12 @@ export async function buildWorkbook(db: AnyDb, view: ExcelView, params: RawParam
     const notes = wb.addWorksheet("Notas");
     notes.addRow([`Rango: ${f.from} a ${f.to}`]);
     notes.addRow(["Solo cuentan lecturas leídas o confirmadas. Lo que está en revisión se muestra aparte y no suma."]);
-    notes.addRow(["Un screenshot que cubre varios días se cuenta en la fecha final de su rango."]);
+    notes.addRow([
+      report.cumulative
+        ? "Los screenshots son acumulados del mes: total del mes = último acumulado; 1ª quincena = acumulado al día 15; 2ª = la diferencia. Si solo hay total, va entero a la 2ª."
+        : "Un screenshot que cubre varios días se cuenta en la fecha final de su rango.",
+    ]);
+    if (report.unidentified) notes.addRow([`${report.unidentified} screenshot(s) del rango todavía no tienen intérprete asignado y no suman.`]);
   } else {
     const f = screenshotsFilter(params);
     suffix = [f.from, f.to].filter(Boolean).join("_") || "todo";
@@ -132,8 +140,8 @@ export async function buildWorkbook(db: AnyDb, view: ExcelView, params: RawParam
     for (const s of subs) {
       ws.addRow({
         id: s.id,
-        code: s.interpreterCode,
-        name: people.find((p) => p.id === s.interpreterId)?.fullName ?? "",
+        code: s.interpreterCode ?? "",
+        name: people.find((p) => p.id === s.interpreterId)?.fullName ?? `Sin identificar${s.uploaderName ? ` (Form: ${s.uploaderName})` : ""}`,
         file: s.fileName,
         uploaded: dateTime(s.uploadedAt, rule.timezone),
         status: STATUS_LABEL[s.status],

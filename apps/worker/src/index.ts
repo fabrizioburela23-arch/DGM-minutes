@@ -23,7 +23,9 @@ async function main(): Promise<void> {
   const store = new S3ObjectStore();
 
   console.log(`[worker] pasada iniciada · zona ${config.timezone}`);
-  const result = await runPass({ db, drive: new GoogleDriveSource(serviceAccount), store, rootFolderId, log: console.log });
+  const layout = process.env.DRIVE_LAYOUT === "form" ? "form" : "folders";
+  const since = /^\d{4}-\d{2}-\d{2}$/.test(process.env.DRIVE_SINCE ?? "") ? process.env.DRIVE_SINCE! : null;
+  const result = await runPass({ db, drive: new GoogleDriveSource(serviceAccount), store, rootFolderId, layout, since, log: console.log });
   for (const alert of result.alerts) console.warn(`[worker] aviso: ${alert}`);
   console.log(
     `[worker] pasada #${result.runId} · vistos ${result.filesSeen} · nuevos ${result.filesNew} · duplicados ${result.duplicates} · fallidos ${result.filesFailed}`,

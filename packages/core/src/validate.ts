@@ -5,13 +5,15 @@ export type PriorReading = { periodStart: string; periodEnd: string; minutes: nu
 export type ValidationContext = {
   /** Hoy, en la zona horaria de la regla (AAAA-MM-DD). */
   today: string;
-  ruleFrequency: "daily" | "weekly";
+  ruleFrequency: "daily" | "weekly" | "semimonthly";
   maxMinutesPerDay: number;
   confidenceThreshold: number;
   /** ID de Propio cargado para el intérprete, si existe. */
   expectedPortalId: string | null;
   /** Lecturas ya aceptadas de este intérprete (read o confirmed), para detectar doble conteo y valores raros. */
   prior: PriorReading[];
+  /** El screenshot no se pudo asociar a ningún intérprete (modo Google Form). */
+  unidentified?: boolean;
   /** Días de antigüedad máxima del rango. */
   maxAgeDays?: number;
 };
@@ -65,8 +67,25 @@ export function validateReading(r: ScreenshotReading, ctx: ValidationContext): s
     if (ctx.ruleFrequency === "daily" && days > 1) reasons.push(`El screenshot cubre ${days} días; la regla de entrega es diaria`);
     if (ctx.ruleFrequency === "weekly" && days > 7) reasons.push(`El screenshot cubre ${days} días; la regla de entrega es semanal`);
 
-    const overlapping = ctx.prior.filter((p) => toUtc(p.periodStart) <= toUtc(end) && toUtc(start) <= toUtc(p.periodEnd));
-    if (overlapping.length > 0) reasons.push("El rango se superpone con otra entrega ya registrada (posible doble conteo)");
+    if (ctx.ruleFrequency === "semimonthly") {
+      // Reporte acumulado del mes: Start Date = día 1 y todo dentro del mismo mes.
+      if (start.slice(8) !== "01") reasons.push("El rango no empieza el día 1: se espera el acumulado del mes (Start Date = 1)");
+      if (start.slice(0, 7) !== end.slice(0, 7)) reasons.push("El rango abarca más de un mes");
+      // Los acumulados del mismo mes se superponen a propósito; lo raro es repetir el rango o que los minutos bajen.
+      const sameMonth = ctx.prior.filter((p) => p.periodStart.slice(0, 7) === start.slice(0, 7));
+      if (sameMonth.some((p) => p.periodStart === start && p.periodEnd === end)) {
+        reasons.push("Ya hay un reporte aceptado con el mismo rango (posible duplicado)");
+      }
+      if (
+        r.minutes !== null &&
+        sameMonth.some((p) => (p.periodEnd < end && p.minutes > r.minutes!) || (p.periodEnd > end && p.minutes < r.minutes!))
+      ) {
+        reasons.push("Los minutos no cuadran con otro reporte del mismo mes (un acumulado posterior no puede tener menos)");
+      }
+    } else {
+      const overlapping = ctx.prior.filter((p) => toUtc(p.periodStart) <= toUtc(end) && toUtc(start) <= toUtc(p.periodEnd));
+      if (overlapping.length > 0) reasons.push("El rango se superpone con otra entrega ya registrada (posible doble conteo)");
+    }
   }
 
   if (r.minutes === null) {
@@ -79,7 +98,13 @@ export function validateReading(r: ScreenshotReading, ctx: ValidationContext): s
 
   if (r.calls === null) reasons.push("No se pudo leer el número de llamadas");
 
-  if (ctx.expectedPortalId && r.portalInterpreterId !== ctx.expectedPortalId) {
+  if (ctx.unidentified) {
+    reasons.push(
+      r.portalInterpreterId
+        ? `No hay ningún intérprete con el ID de Propio ${r.portalInterpreterId}: asignarlo a mano (el sistema aprende el ID)`
+        : "No se pudo identificar al intérprete (no se leyó el ID de Propio): asignarlo a mano",
+    );
+  } else if (ctx.expectedPortalId && r.portalInterpreterId !== ctx.expectedPortalId) {
     reasons.push("El ID de Propio del screenshot no coincide con el del intérprete");
   }
 

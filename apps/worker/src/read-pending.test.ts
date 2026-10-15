@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import type { ReadResult, ScreenshotReader, ScreenshotReading } from "@dgm/core/reader";
 import type { ObjectStore } from "@dgm/core/storage";
-import { evalRuns, interpreters, readings, schema, seedTestData, submissions } from "@dgm/db";
+import { deliveryRules, evalRuns, interpreters, readings, schema, seedTestData, submissions } from "@dgm/db";
 import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
@@ -62,6 +62,8 @@ async function main() {
   const db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: fileURLToPath(new URL("../../../packages/db/migrations", import.meta.url)) });
   await seedTestData(db);
+  // Este primer escenario usa la regla diaria; el modo Google Form (quincenal) se prueba más abajo.
+  await db.update(deliveryRules).set({ frequency: "daily" });
   const people = await db.select().from(interpreters).orderBy(asc(interpreters.code));
   const [t1, t2, t3] = people;
   await db.update(interpreters).set({ portalId: "99999" }).where(eq(interpreters.id, t3.id));
@@ -121,6 +123,36 @@ async function main() {
   const saved = await db.select().from(readings).orderBy(asc(readings.id));
   assert.equal(saved.length, 10, "6 lecturas pequeñas (la caída y la HEIC no generan lectura) + 4 escaladas");
   assert.ok(saved.filter((r) => r.escalated).every((r) => r.model === "large"));
+
+  // ── Modo Google Form, regla quincenal: el dueño lo decide el ID de Propio ──
+  await db.update(deliveryRules).set({ frequency: "semimonthly", deadlineOffsetDays: 1 });
+  // T003 no tiene lecturas aceptadas en octubre: así los acumulados de esta parte no chocan con las de arriba.
+  await db.update(interpreters).set({ portalId: "11111" }).where(eq(interpreters.id, t3.id));
+  const addForm = async (id: string, interpreterId: number | null) => {
+    const key = `form/2026-10/${id}.png`;
+    await store.put(key, Buffer.from(id));
+    await db.insert(submissions).values({ interpreterId, uploaderName: "alguien", driveFileId: id, fileName: `${id} - alguien.png`, storageKey: key });
+  };
+  await addForm("f-porid", null); // sin pista de nombre, el ID 11111 es de T003
+  await addForm("f-nadie", null); // ID que nadie tiene
+  await addForm("f-cruce", t2.id); // el nombre apuntaba a T002 (sin ID), pero el ID es de T003
+  await addForm("f-quinc", t3.id); // acumulado mayor del mismo mes de T003: normal
+  const formReader = new FakeReader({
+    "f-porid": { small: { periodStart: "2026-10-01", periodEnd: "2026-10-05", minutes: 600, portalInterpreterId: "11111" } },
+    "f-nadie": { small: { periodStart: "2026-10-01", periodEnd: "2026-10-08", minutes: 900, portalInterpreterId: "77777" } },
+    "f-cruce": { small: { periodStart: "2026-10-01", periodEnd: "2026-10-09", minutes: 1000, portalInterpreterId: "11111" } },
+    "f-quinc": { small: { periodStart: "2026-10-01", periodEnd: "2026-10-10", minutes: 1200, portalInterpreterId: "11111" } },
+  });
+  await readPending({ db, store, reader: formReader, settings, now });
+  const byFile = Object.fromEntries((await db.select().from(submissions)).map((s) => [s.driveFileId, s]));
+  assert.equal(byFile["f-porid"].interpreterId, t3.id, "asignado por ID de Propio");
+  assert.equal(byFile["f-porid"].status, "read");
+  assert.equal(byFile["f-nadie"].interpreterId, null);
+  assert.equal(byFile["f-nadie"].status, "needs_review");
+  assert.match(byFile["f-nadie"].reviewReason ?? "", /ID de Propio 77777/);
+  assert.equal(byFile["f-cruce"].interpreterId, t3.id);
+  assert.match(byFile["f-cruce"].reviewReason ?? "", /nombre del Form apunta a Prueba Dos, pero el ID de Propio es de Prueba Tres/);
+  assert.equal(byFile["f-quinc"].status, "read", "un acumulado mayor del mismo mes no es doble conteo");
 
   // Evaluación: una sola vez por versión
   const evalReader = new FakeReader({

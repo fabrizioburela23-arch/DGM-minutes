@@ -4,7 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import type { DriveFolder, DriveImage, DriveSource } from "@dgm/core/drive";
 import type { ObjectStore } from "@dgm/core/storage";
 import { interpreters, schema, seedTestData, submissions, workerRuns } from "@dgm/db";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { codeFromFolderName, recordRunError, runPass, storageKey } from "./pass";
@@ -131,6 +131,30 @@ async function main() {
   await recordRunError(db, last.id, "La IA no pudo leer 2 screenshot(s)");
   const [annotated] = await db.select().from(workerRuns).where(eq(workerRuns.id, last.id));
   assert.equal(annotated.error, "sin acceso a Drive · La IA no pudo leer 2 screenshot(s)");
+
+  // ── Modo Google Form: una sola carpeta, el nombre viene en el archivo ──
+  const formDrive = new FakeDrive(
+    [],
+    {
+      "form-root": [
+        img("g-1", "IMG_1 - Prueba Uno.png", "2026-10-05T15:00:00Z"),
+        img("g-2", "captura - Alguien Más.png", "2026-10-05T16:00:00Z"),
+        img("g-old", "vieja - Prueba Uno.png", "2026-09-20T16:00:00Z"),
+      ],
+    },
+    { "g-1": "form 1", "g-2": "form 2", "g-old": "vieja" },
+  );
+  const formRun = await runPass({ db, drive: formDrive, store, rootFolderId: "form-root", layout: "form", since: "2026-10-01" });
+  assert.equal(formRun.filesSeen, 2, "lo anterior a DRIVE_SINCE se ignora");
+  assert.equal(formRun.filesNew, 2);
+  const forms = await db.select().from(submissions).where(inArray(submissions.driveFileId, ["g-1", "g-2", "g-old"]));
+  const g1 = forms.find((f) => f.driveFileId === "g-1")!;
+  const g2 = forms.find((f) => f.driveFileId === "g-2")!;
+  assert.equal(g1.interpreterId, linked[0].id, "nombre del Form = Prueba Uno");
+  assert.equal(g1.uploaderName, "Prueba Uno");
+  assert.equal(g2.interpreterId, null, "nombre desconocido: queda sin asignar hasta leer el ID");
+  assert.match(g2.storageKey ?? "", /^form\/2026-10\/g-2\.png$/);
+  assert.equal(forms.length, 2);
 
   console.log("[pass.test] OK: vinculación, duplicados, fallos aislados, idempotencia y registro de pasadas");
   await client.close();

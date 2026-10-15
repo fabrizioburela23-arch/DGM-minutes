@@ -25,7 +25,8 @@ export default async function ScreenshotsPage({ searchParams }: { searchParams: 
   const hasMore = subs.length > PAGE_SIZE;
   const shown = subs.slice(0, PAGE_SIZE);
   const images = await Promise.all(shown.map((s) => imageUrl(s.storageKey)));
-  const filters = { interprete: f.interpreterId?.toString(), estado: f.status, desde: f.from, hasta: f.to };
+  const options = people.filter((p) => p.active).map((p) => ({ id: p.id, label: `${p.fullName}${p.company ? ` · ${p.company}` : ""}` }));
+  const filters = { interprete: f.interpreterId === "none" ? "sin" : f.interpreterId?.toString(), estado: f.status, desde: f.from, hasta: f.to };
 
   return (
     <>
@@ -38,11 +39,13 @@ export default async function ScreenshotsPage({ searchParams }: { searchParams: 
       <form className="mb-5 flex flex-wrap items-end gap-3" method="get">
         <label className="flex flex-col gap-1 text-sm">
           Intérprete
-          <select className={inputClass} name="interprete" defaultValue={f.interpreterId ?? ""}>
+          <select className={inputClass} name="interprete" defaultValue={f.interpreterId === "none" ? "sin" : (f.interpreterId ?? "")}>
             <option value="">Todos</option>
+            <option value="sin">Sin identificar</option>
             {people.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.code} · {p.fullName}
+                {p.fullName}
+                {p.company ? ` · ${p.company}` : ""}
               </option>
             ))}
           </select>
@@ -79,7 +82,7 @@ export default async function ScreenshotsPage({ searchParams }: { searchParams: 
       ) : (
         <div className="space-y-3">
           {shown.map((s, i) => (
-            <SubmissionCard key={s.id} s={s} image={images[i]} timezone={rule.timezone} review={s.status === "pending" ? "none" : "collapsed"} />
+            <SubmissionCard key={s.id} s={s} image={images[i]} timezone={rule.timezone} people={options} review={s.status === "pending" ? "none" : "collapsed"} />
           ))}
         </div>
       )}

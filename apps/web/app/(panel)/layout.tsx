@@ -24,7 +24,12 @@ export default async function PanelLayout({ children }: { children: React.ReactN
     { href: "/entregas", label: "Entregas" },
     { href: "/screenshots", label: "Screenshots" },
     { href: "/revision", label: "Revisión", badge: inbox },
-    ...(manager.role === "admin" ? [{ href: "/gerentes", label: "Gerentes" }] : []),
+    ...(manager.role === "admin"
+      ? [
+          { href: "/interpretes", label: "Intérpretes" },
+          { href: "/gerentes", label: "Gerentes" },
+        ]
+      : []),
   ];
 
   return (

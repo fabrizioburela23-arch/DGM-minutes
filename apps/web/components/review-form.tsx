@@ -10,6 +10,8 @@ type Props = {
   periodStart: string | null;
   periodEnd: string | null;
   canConfirm: boolean;
+  interpreterId: number | null;
+  people: { id: number; label: string }[];
 };
 
 const input = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm";
@@ -23,6 +25,19 @@ export function ReviewForm(p: Props) {
   return (
     <form action={action} className="space-y-3">
       <input type="hidden" name="submissionId" value={p.submissionId} />
+      {p.interpreterId === null || correcting ? (
+        <label className="block text-xs text-slate-600">
+          Intérprete {p.interpreterId === null ? <span className="text-rose-700">(obligatorio para confirmar)</span> : null}
+          <select className={input} name="interpreterId" defaultValue={p.interpreterId ?? ""}>
+            <option value="">— Elegir —</option>
+            {p.people.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       {correcting ? (
         <div className="grid grid-cols-2 gap-2">
           <label className="text-xs text-slate-600">

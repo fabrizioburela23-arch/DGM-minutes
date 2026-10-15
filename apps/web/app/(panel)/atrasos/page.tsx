@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Card, EmptyState, ExcelButton, MonthNav, PageHeader, Stat } from "@/components/ui";
 import { lateReport, loadRule } from "@/lib/data";
 import { monthFilter, toQuery } from "@/lib/filters";
-import { mediumDate, shortDate } from "@/lib/format";
+import { mediumDate, periodName, periodUnit } from "@/lib/format";
 import { RuleNote } from "@/components/rule-note";
 
 export default async function AtrasosPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
@@ -12,7 +12,8 @@ export default async function AtrasosPage({ searchParams }: { searchParams: Prom
   const rule = await loadRule(db);
   const { month } = monthFilter(params, rule.timezone);
   const { today, rows } = await lateReport(db, month);
-  const behind = rows.filter((r) => r.daysBehind > 0);
+  const behind = rows.filter((r) => r.behind > 0);
+  const unitMany = periodUnit(rule.frequency, 2);
 
   return (
     <>
@@ -29,7 +30,7 @@ export default async function AtrasosPage({ searchParams }: { searchParams: Prom
 
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Con atraso hoy" value={behind.length} hint={`de ${rows.length} intérpretes activos`} />
-        <Stat label="Faltas en el mes" value={rows.reduce((n, r) => n + r.month.falta, 0)} />
+        <Stat label={`Faltas en el mes (${unitMany})`} value={rows.reduce((n, r) => n + r.month.falta, 0)} />
         <Stat label="Entregas tarde" value={rows.reduce((n, r) => n + r.month.atrasado, 0)} />
         <Stat label="En revisión" value={rows.reduce((n, r) => n + r.month.en_revision, 0)} />
       </div>
@@ -43,17 +44,17 @@ export default async function AtrasosPage({ searchParams }: { searchParams: Prom
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-medium">
-                    {r.interpreter.fullName} <span className="text-sm font-normal text-slate-500">{r.interpreter.code}</span>
+                    {r.interpreter.fullName} <span className="text-sm font-normal text-slate-500">{r.interpreter.company ?? r.interpreter.code}</span>
                   </p>
                   <p className="text-sm text-slate-600">
                     Última entrega: {r.lastDelivery ? mediumDate(r.lastDelivery) : "ninguna registrada"}
                   </p>
                 </div>
                 <div
-                  className={`rounded-lg px-3 py-1.5 text-right ${r.daysBehind > 0 ? "bg-rose-100 text-rose-900" : "bg-emerald-50 text-emerald-800"}`}
+                  className={`rounded-lg px-3 py-1.5 text-right ${r.behind > 0 ? "bg-rose-100 text-rose-900" : "bg-emerald-50 text-emerald-800"}`}
                 >
-                  <p className="text-lg font-semibold tabular-nums">{r.daysBehind}</p>
-                  <p className="text-xs">{r.daysBehind === 1 ? "día de atraso" : "días de atraso"}</p>
+                  <p className="text-lg font-semibold tabular-nums">{r.behind}</p>
+                  <p className="text-xs">{periodUnit(rule.frequency, r.behind)} sin entregar</p>
                 </div>
               </div>
               {r.behindSince ? <p className="mt-2 text-sm text-rose-800">Sin entregar desde el {mediumDate(r.behindSince)}.</p> : null}
@@ -67,11 +68,11 @@ export default async function AtrasosPage({ searchParams }: { searchParams: Prom
                 <div className="mt-2 flex flex-wrap gap-1">
                   {r.incidents.map((i) => (
                     <span
-                      key={i.date}
+                      key={i.period.key}
                       className={`rounded px-1.5 py-0.5 text-xs ${i.status === "falta" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-900"}`}
                       title={i.status === "falta" ? "Falta" : "Entregó tarde"}
                     >
-                      {shortDate(i.date)} {i.status === "falta" ? "✗" : "⏱"}
+                      {periodName(i.period)} {i.status === "falta" ? "✗" : "⏱"}
                     </span>
                   ))}
                 </div>

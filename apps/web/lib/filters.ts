@@ -1,5 +1,6 @@
-import type { SubmissionStatus } from "./data";
-import { defaultMinutesRange, parseDay, parseGrouping, parseMonth } from "./format";
+import type { DeliveryRule } from "@dgm/core/deliveries";
+import { groupingsFor, type SubmissionStatus } from "./data";
+import { defaultMinutesRange, parseDay, parseGrouping, parseMonth, shiftMonth } from "./format";
 
 /** Lo que llega en la URL (?mes=…&desde=…), como lo entregan las páginas o URLSearchParams. */
 export type RawParams = Record<string, string | string[] | undefined> | URLSearchParams;
@@ -14,24 +15,27 @@ export function monthFilter(params: RawParams, timezone: string) {
   return { month: parseMonth(get(params, "mes"), timezone) };
 }
 
-export function minutesFilter(params: RawParams, timezone: string, now = new Date()) {
-  const def = defaultMinutesRange(timezone, now);
+export function minutesFilter(params: RawParams, rule: DeliveryRule, now = new Date()) {
+  const def = defaultMinutesRange(rule.timezone, now);
+  // Con reportes quincenales, por defecto se ven los últimos 3 meses.
+  if (rule.frequency === "semimonthly") def.from = `${shiftMonth(def.from.slice(0, 7), -2)}-01`;
   let from = parseDay(get(params, "desde"), def.from);
   let to = parseDay(get(params, "hasta"), def.to);
   if (to < from) [from, to] = [to, from];
-  return { from, to, grouping: parseGrouping(get(params, "agrupar")) };
+  return { from, to, grouping: parseGrouping(get(params, "agrupar"), groupingsFor(rule)) };
 }
 
 const STATUSES: SubmissionStatus[] = ["pending", "read", "needs_review", "confirmed", "rejected", "duplicate"];
 
 export function screenshotsFilter(params: RawParams) {
-  const interpreter = Number(get(params, "interprete"));
+  const rawInterpreter = get(params, "interprete");
+  const interpreter = Number(rawInterpreter);
   const status = get(params, "estado") as SubmissionStatus | undefined;
   const from = get(params, "desde");
   const to = get(params, "hasta");
   const page = Math.max(1, Math.floor(Number(get(params, "pagina")) || 1));
   return {
-    interpreterId: Number.isInteger(interpreter) && interpreter > 0 ? interpreter : undefined,
+    interpreterId: rawInterpreter === "sin" ? ("none" as const) : Number.isInteger(interpreter) && interpreter > 0 ? interpreter : undefined,
     status: status && STATUSES.includes(status) ? status : undefined,
     from: from ? parseDay(from, "") || undefined : undefined,
     to: to ? parseDay(to, "") || undefined : undefined,

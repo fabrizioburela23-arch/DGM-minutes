@@ -78,4 +78,16 @@ assert.equal(n.portalInterpreterName, "Nombre");
 assert.equal(n.confidence, 1);
 assert.deepEqual(n.extraFields, { filas_en_tabla: "1 – 15 of 482" });
 
+// Regla quincenal: acumulados del mes
+{
+  const semi: ValidationContext = { ...ctx, ruleFrequency: "semimonthly", prior: [{ periodStart: "2026-10-01", periodEnd: "2026-10-05", minutes: 900 }] };
+  const mtd = { ...good, periodStart: "2026-10-01", periodEnd: "2026-10-11", minutes: 2000 };
+  assert.deepEqual(validateReading(mtd, semi), [], "un acumulado mayor del mismo mes es normal");
+  has({ ...mtd, minutes: 800 }, semi, /no cuadran/);
+  has({ ...mtd, periodStart: "2026-10-02" }, semi, /día 1/);
+  has({ ...mtd, periodStart: "2026-10-01", periodEnd: "2026-10-05" }, semi, /mismo rango/);
+  has(mtd, { ...semi, unidentified: true }, /ID de Propio 63602/);
+  has({ ...mtd, portalInterpreterId: null }, { ...semi, unidentified: true }, /no se leyó el ID/);
+}
+
 console.log("[validate.test] OK: reglas de validación y normalización");

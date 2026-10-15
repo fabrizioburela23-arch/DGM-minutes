@@ -25,6 +25,7 @@ async function main() {
   const rules = await db.select().from(schema.deliveryRules);
   assert.equal(rules.length, 1, "una sola regla de entrega");
   assert.deepEqual(rules[0].requiredWeekdays, [1, 2, 3, 4, 5]);
+  assert.equal(rules[0].frequency, "semimonthly");
   assert.equal(rules[0].timezone, "America/La_Paz");
 
   const admins = await db.select().from(schema.managers);

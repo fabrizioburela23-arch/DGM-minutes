@@ -26,7 +26,6 @@ export const submissionStatus = pgEnum("submission_status", [
   "rejected",
   "duplicate",
 ]);
-export const deliveryFrequency = pgEnum("delivery_frequency", ["daily", "weekly"]);
 export const reviewAction = pgEnum("review_action", ["confirm", "correct", "reject"]);
 export const managerRole = pgEnum("manager_role", ["manager", "admin"]);
 
@@ -40,6 +39,10 @@ export const interpreters = pgTable(
     email: text("email"),
     /** ID del intérprete en el portal de Propio (ej. 63602), para verificar que el screenshot es suyo. */
     portalId: text("portal_id"),
+    /** Cuenta o cliente con el que trabaja (C-tel, Simplified, Interpredia). */
+    company: text("company"),
+    /** Otros nombres con los que firma (por ejemplo, el nombre que pone en el Google Form). */
+    aliases: text("aliases").array().notNull().default(sql`'{}'::text[]`),
     driveFolderId: text("drive_folder_id"),
     active: boolean("active").notNull().default(true),
     startDate: date("start_date"),
@@ -52,8 +55,11 @@ export const interpreters = pgTable(
 /** Regla de entrega (cada cuánto se sube el reporte y hasta qué hora). Una activa por ahora. */
 export const deliveryRules = pgTable("delivery_rules", {
   id: serial("id").primaryKey(),
-  frequency: deliveryFrequency("frequency").notNull().default("daily"),
+  /** daily = cada día exigido; weekly = cada semana; semimonthly = acumulado del mes, por quincena (1–15 y 16–fin). */
+  frequency: text("frequency").$type<"daily" | "weekly" | "semimonthly">().notNull().default("daily"),
   deadlineTime: time("deadline_time").notNull().default("23:59"),
+  /** Días después del fin de cada periodo para entregar (0 = el mismo día). */
+  deadlineOffsetDays: smallint("deadline_offset_days").notNull().default(0),
   timezone: text("timezone").notNull().default("America/La_Paz"),
   /** 0 = domingo … 6 = sábado. */
   requiredWeekdays: smallint("required_weekdays").array().notNull().default(sql`'{1,2,3,4,5}'::smallint[]`),
@@ -67,9 +73,10 @@ export const submissions = pgTable(
   "submissions",
   {
     id: serial("id").primaryKey(),
-    interpreterId: integer("interpreter_id")
-      .notNull()
-      .references(() => interpreters.id),
+    /** Puede quedar vacío si aún no se sabe de quién es (screenshots del Google Form); se asigna por el ID de Propio. */
+    interpreterId: integer("interpreter_id").references(() => interpreters.id),
+    /** Nombre que Google Forms agrega al archivo ("captura - Nombre.png"). Solo referencia, no identifica. */
+    uploaderName: text("uploader_name"),
     driveFileId: text("drive_file_id").notNull(),
     fileName: text("file_name").notNull(),
     driveCreatedAt: timestamp("drive_created_at", { withTimezone: true }),

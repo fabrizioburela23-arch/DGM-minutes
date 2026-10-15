@@ -4,6 +4,28 @@ import type { ObjectStore } from "@dgm/core/storage";
 import { todayIn, validateReading, type PriorReading } from "@dgm/core/validate";
 import { and, type AnyDb, asc, deliveryRules, eq, inArray, interpreters, ne, readings, submissions } from "@dgm/db";
 
+type Person = { id: number; fullName: string; portalId: string | null };
+
+/**
+ * Dueño de un screenshot: manda el ID de Propio que leyó la IA (si coincide con un intérprete activo);
+ * si no, queda el que ya tenía la entrega (su carpeta o el nombre del Google Form).
+ */
+export function resolveInterpreter(
+  current: Person | null,
+  portalId: string | null,
+  people: Person[],
+): { person: Person | null; conflict: string | null } {
+  const byId = portalId ? people.find((p) => p.portalId === portalId) ?? null : null;
+  if (byId) {
+    const conflict =
+      current && current.id !== byId.id && current.portalId === null
+        ? `El nombre del Form apunta a ${current.fullName}, pero el ID de Propio es de ${byId.fullName}`
+        : null;
+    return { person: byId, conflict };
+  }
+  return { person: current, conflict: null };
+}
+
 export type ReadSettings = {
   modelSmall: string;
   modelLarge: string;
@@ -87,18 +109,21 @@ export async function readPending(deps: {
   const summary: ReadResultSummary = { read: 0, needsReview: 0, escalated: 0, failed: 0 };
 
   const [rule] = await db.select().from(deliveryRules).where(eq(deliveryRules.active, true)).limit(1);
-  const ruleFrequency = rule?.frequency ?? "daily";
+  const ruleFrequency = rule?.frequency ?? "semimonthly";
   const timezone = rule?.timezone ?? settings.timezone;
+
+  const people: Person[] = await db
+    .select({ id: interpreters.id, fullName: interpreters.fullName, portalId: interpreters.portalId })
+    .from(interpreters)
+    .where(eq(interpreters.active, true));
 
   const pending = await db
     .select({
       id: submissions.id,
       storageKey: submissions.storageKey,
       interpreterId: submissions.interpreterId,
-      portalId: interpreters.portalId,
     })
     .from(submissions)
-    .innerJoin(interpreters, eq(submissions.interpreterId, interpreters.id))
     .where(eq(submissions.status, "pending"))
     .orderBy(asc(submissions.id))
     .limit(settings.batchSize);
@@ -118,18 +143,25 @@ export async function readPending(deps: {
       }
 
       const image = await store.get(sub.storageKey);
-      const context = {
-        today: todayIn(timezone, now()),
-        ruleFrequency,
-        maxMinutesPerDay: settings.maxMinutesPerDay,
-        confidenceThreshold: settings.confidenceThreshold,
-        expectedPortalId: sub.portalId,
-        prior: await priorReadings(db, sub.interpreterId, sub.id),
-      } as const;
+      const current = sub.interpreterId ? (people.find((p) => p.id === sub.interpreterId) ?? null) : null;
+
+      const check = async (reading: ScreenshotReading) => {
+        const { person, conflict } = resolveInterpreter(current, reading.portalInterpreterId, people);
+        const reasons = validateReading(reading, {
+          today: todayIn(timezone, now()),
+          ruleFrequency,
+          maxMinutesPerDay: settings.maxMinutesPerDay,
+          confidenceThreshold: settings.confidenceThreshold,
+          expectedPortalId: person?.portalId ?? null,
+          unidentified: person === null,
+          prior: person ? await priorReadings(db, person.id, sub.id) : [],
+        });
+        return { person, reasons: conflict ? [...reasons, conflict] : reasons };
+      };
 
       const first = await reader.read(image, mime, settings.modelSmall);
       await saveReading(db, sub.id, first.model, first.reading, first.raw, false);
-      let reasons = validateReading(first.reading, context);
+      let { person, reasons } = await check(first.reading);
 
       if (reasons.length > 0) {
         // Si el modelo mayor falla, no se reintenta en cada pasada (costaría lo mismo una y otra vez):
@@ -137,12 +169,16 @@ export async function readPending(deps: {
         try {
           const second = await reader.read(image, mime, settings.modelLarge);
           await saveReading(db, sub.id, second.model, second.reading, second.raw, true);
-          reasons = validateReading(second.reading, context);
+          ({ person, reasons } = await check(second.reading));
           summary.escalated += 1;
         } catch (error) {
           reasons = [...reasons, "No se pudo verificar con el modelo mayor"];
           log(`[worker] escalado de la entrega #${sub.id} falló: ${error instanceof Error ? error.message : String(error)}`);
         }
+      }
+
+      if (person?.id !== sub.interpreterId) {
+        await db.update(submissions).set({ interpreterId: person?.id ?? null }).where(eq(submissions.id, sub.id));
       }
 
       if (reasons.length === 0) {

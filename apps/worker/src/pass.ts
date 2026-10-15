@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { DriveImage, DriveSource } from "@dgm/core/drive";
+import { matchByName, uploaderNameFromFile } from "@dgm/core/names";
 import type { ObjectStore } from "@dgm/core/storage";
 import { type AnyDb, eq, inArray, interpreters, submissions, workerRuns } from "@dgm/db";
 
@@ -33,11 +34,24 @@ export function codeFromFolderName(name: string): string | null {
   return match ? match[1].toUpperCase() : null;
 }
 
-export function storageKey(code: string, file: Pick<DriveImage, "id" | "name" | "mimeType" | "createdTime">, now: Date): string {
+function monthOf(file: Pick<DriveImage, "createdTime">, now: Date): string {
   const when = file.createdTime ? new Date(file.createdTime) : now;
-  const month = `${when.getUTCFullYear()}-${String(when.getUTCMonth() + 1).padStart(2, "0")}`;
-  return `interpreters/${code}/${month}/${file.id}.${extensionFor(file)}`;
+  return `${when.getUTCFullYear()}-${String(when.getUTCMonth() + 1).padStart(2, "0")}`;
 }
+
+/** Clave en el bucket. Con carpeta por intérprete: interpreters/<code>/…; con Google Form (aún sin dueño seguro): form/…. */
+export function storageKey(code: string | null, file: Pick<DriveImage, "id" | "name" | "mimeType" | "createdTime">, now: Date): string {
+  const prefix = code ? `interpreters/${code}` : "form";
+  return `${prefix}/${monthOf(file, now)}/${file.id}.${extensionFor(file)}`;
+}
+
+/**
+ * Cómo organiza DGM los screenshots en Drive:
+ * - "folders": una subcarpeta por intérprete dentro de la carpeta raíz.
+ * - "form": una sola carpeta (la de respuestas de un Google Form); el dueño se deduce del nombre del archivo
+ *   y, después, del ID de Propio que lee la IA.
+ */
+export type DriveLayout = "folders" | "form";
 
 /**
  * Una pasada del worker (hito 3, sin IA): vincula carpetas, detecta screenshots nuevos,
@@ -49,10 +63,15 @@ export async function runPass(deps: {
   drive: DriveSource;
   store: ObjectStore;
   rootFolderId: string;
+  layout?: DriveLayout;
+  /** AAAA-MM-DD: ignora archivos creados antes de esta fecha. */
+  since?: string | null;
   log?: Log;
   now?: () => Date;
 }): Promise<PassResult> {
   const { db, drive, store, rootFolderId } = deps;
+  const layout = deps.layout ?? "folders";
+  const since = deps.since ?? null;
   const log = deps.log ?? (() => {});
   const now = deps.now ?? (() => new Date());
 
@@ -60,32 +79,40 @@ export async function runPass(deps: {
   const result: PassResult = { runId: run.id, filesSeen: 0, filesNew: 0, filesFailed: 0, duplicates: 0, alerts: [] };
 
   try {
-    const folders = await drive.listSubfolders(rootFolderId);
     const people = await db.select().from(interpreters).where(eq(interpreters.active, true));
-    const byFolder = new Map(people.filter((p) => p.driveFolderId).map((p) => [p.driveFolderId!, p]));
-    const byCode = new Map(people.map((p) => [p.code.toUpperCase(), p]));
+    type Person = (typeof people)[number];
+    const batches: { images: DriveImage[]; person: Person | null }[] = [];
 
-    for (const folder of folders) {
-      let person = byFolder.get(folder.id);
-
-      // Vincula una carpeta nueva por el código al inicio de su nombre, si ese intérprete aún no tiene carpeta.
-      if (!person) {
-        const code = codeFromFolderName(folder.name);
-        const candidate = code ? byCode.get(code) : undefined;
-        if (candidate && !candidate.driveFolderId) {
-          await db.update(interpreters).set({ driveFolderId: folder.id }).where(eq(interpreters.id, candidate.id));
-          candidate.driveFolderId = folder.id;
-          person = candidate;
-          log(`[worker] carpeta ${folder.id} vinculada al intérprete #${candidate.id}`);
+    if (layout === "form") {
+      batches.push({ images: await drive.listImages(rootFolderId), person: null });
+    } else {
+      const folders = await drive.listSubfolders(rootFolderId);
+      const byFolder = new Map(people.filter((p) => p.driveFolderId).map((p) => [p.driveFolderId!, p]));
+      const byCode = new Map(people.map((p) => [p.code.toUpperCase(), p]));
+      for (const folder of folders) {
+        let person = byFolder.get(folder.id);
+        // Vincula una carpeta nueva por el código al inicio de su nombre, si ese intérprete aún no tiene carpeta.
+        if (!person) {
+          const code = codeFromFolderName(folder.name);
+          const candidate = code ? byCode.get(code) : undefined;
+          if (candidate && !candidate.driveFolderId) {
+            await db.update(interpreters).set({ driveFolderId: folder.id }).where(eq(interpreters.id, candidate.id));
+            candidate.driveFolderId = folder.id;
+            person = candidate;
+            log(`[worker] carpeta ${folder.id} vinculada al intérprete #${candidate.id}`);
+          }
         }
+        if (!person) {
+          result.alerts.push(`Carpeta sin intérprete: "${folder.name}" (${folder.id})`);
+          continue;
+        }
+        batches.push({ images: await drive.listImages(folder.id), person });
       }
+    }
 
-      if (!person) {
-        result.alerts.push(`Carpeta sin intérprete: "${folder.name}" (${folder.id})`);
-        continue;
-      }
-
-      const images = await drive.listImages(folder.id);
+    for (const batch of batches) {
+      // Solo screenshots subidos desde la fecha de inicio (para no meter todo el historial en la bandeja).
+      const images = batch.images.filter((i) => !since || !i.createdTime || i.createdTime.slice(0, 10) >= since);
       result.filesSeen += images.length;
       if (images.length === 0) continue;
 
@@ -98,9 +125,12 @@ export async function runPass(deps: {
       for (const image of images) {
         if (knownIds.has(image.id)) continue;
         try {
+          const uploaderName = layout === "form" ? uploaderNameFromFile(image.name) : null;
+          // En modo Form, el nombre es solo una primera pista; la IA confirma con el ID de Propio.
+          const person = batch.person ?? matchByName(uploaderName, people);
           const bytes = await drive.download(image.id);
           const sha256 = createHash("sha256").update(bytes).digest("hex");
-          const key = storageKey(person.code, image, now());
+          const key = storageKey(batch.person ? batch.person.code : null, image, now());
           await store.put(key, bytes, image.mimeType || "application/octet-stream");
 
           const [twin] = await db
@@ -112,7 +142,8 @@ export async function runPass(deps: {
           const inserted = await db
             .insert(submissions)
             .values({
-              interpreterId: person.id,
+              interpreterId: person?.id ?? null,
+              uploaderName,
               driveFileId: image.id,
               fileName: image.name,
               driveCreatedAt: image.createdTime ? new Date(image.createdTime) : null,

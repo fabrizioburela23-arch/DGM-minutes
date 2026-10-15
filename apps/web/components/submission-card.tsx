@@ -9,11 +9,13 @@ export function SubmissionCard({
   image,
   timezone,
   review,
+  people,
 }: {
   s: SubmissionView;
   image: string | null;
   timezone: string;
   review: "open" | "collapsed" | "none";
+  people: { id: number; label: string }[];
 }) {
   const portalMismatch = s.expectedPortalId && s.portalInterpreterId && s.expectedPortalId !== s.portalInterpreterId;
   const canConfirm = s.minutes !== null && Boolean(s.periodStart && s.periodEnd);
@@ -25,6 +27,8 @@ export function SubmissionCard({
       periodStart={s.periodStart}
       periodEnd={s.periodEnd}
       canConfirm={canConfirm}
+      interpreterId={s.interpreterId}
+      people={people}
     />
   );
 
@@ -47,7 +51,8 @@ export function SubmissionCard({
       <div className="min-w-0 flex-1 space-y-2 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="font-medium">
-            {s.interpreterName} <span className="font-normal text-slate-500">{s.interpreterCode}</span>
+            {s.interpreterName ?? <span className="text-rose-700">Sin identificar</span>}{" "}
+            {s.uploaderName ? <span className="text-sm font-normal text-slate-500">· en el Form: «{s.uploaderName}»</span> : null}
           </p>
           <StatusBadge status={s.status} />
         </div>
