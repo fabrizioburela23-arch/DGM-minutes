@@ -11,6 +11,8 @@ type Props = {
   periodEnd: string | null;
   canConfirm: boolean;
   interpreterId: number | null;
+  /** Intérprete sugerido por el nombre del Form (solo cuando aún no tiene dueño). */
+  suggestedId?: number | null;
   people: { id: number; label: string }[];
 };
 
@@ -27,8 +29,15 @@ export function ReviewForm(p: Props) {
       <input type="hidden" name="submissionId" value={p.submissionId} />
       {p.interpreterId === null || correcting ? (
         <label className="block text-xs text-slate-600">
-          Intérprete {p.interpreterId === null ? <span className="text-rose-700">(obligatorio para confirmar)</span> : null}
-          <select className={input} name="interpreterId" defaultValue={p.interpreterId ?? ""}>
+          Intérprete{" "}
+          {p.interpreterId === null ? (
+            p.suggestedId ? (
+              <span className="text-amber-700">(sugerido por el nombre del Form; revisa antes de confirmar)</span>
+            ) : (
+              <span className="text-rose-700">(obligatorio para confirmar)</span>
+            )
+          ) : null}
+          <select className={input} name="interpreterId" defaultValue={p.interpreterId ?? p.suggestedId ?? ""}>
             <option value="">— Elegir —</option>
             {p.people.map((x) => (
               <option key={x.id} value={x.id}>

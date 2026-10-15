@@ -5,6 +5,7 @@ import { buttonClass, EmptyState, ExcelButton, inputClass, PageHeader } from "@/
 import { loadInterpreters, loadRule, loadSubmissions, STATUS_LABEL, type SubmissionStatus } from "@/lib/data";
 import { screenshotsFilter, toQuery } from "@/lib/filters";
 import { imageUrl } from "@/lib/images";
+import { suggestByName } from "@dgm/core/names";
 
 const PAGE_SIZE = 20;
 
@@ -82,7 +83,7 @@ export default async function ScreenshotsPage({ searchParams }: { searchParams: 
       ) : (
         <div className="space-y-3">
           {shown.map((s, i) => (
-            <SubmissionCard key={s.id} s={s} image={images[i]} timezone={rule.timezone} people={options} review={s.status === "pending" ? "none" : "collapsed"} />
+            <SubmissionCard key={s.id} s={s} image={images[i]} timezone={rule.timezone} people={options} suggestedId={s.interpreterId ? null : (suggestByName(s.uploaderName, people.filter((p) => p.active))?.id ?? null)} review={s.status === "pending" ? "none" : "collapsed"} />
           ))}
         </div>
       )}

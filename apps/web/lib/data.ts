@@ -109,6 +109,8 @@ export type SubmissionFilters = {
   /** Un intérprete, o "none" para los screenshots que aún no tienen dueño. */
   interpreterId?: number | "none";
   statuses?: SubmissionStatus[];
+  /** Oculta los screenshots de intérpretes dados de baja (los sin dueño se muestran igual). */
+  activeOnly?: boolean;
   order?: "newest" | "oldest";
   limit?: number;
   offset?: number;
@@ -137,6 +139,7 @@ export async function loadSubmissions(db: AnyDb, f: SubmissionFilters = {}): Pro
   if (f.interpreterId === "none") conditions.push(isNull(submissions.interpreterId));
   else if (f.interpreterId) conditions.push(eq(submissions.interpreterId, f.interpreterId));
   if (f.statuses && f.statuses.length > 0) conditions.push(inArray(submissions.status, f.statuses));
+  if (f.activeOnly) conditions.push(sql`(${submissions.interpreterId} is null or ${interpreters.active})`);
   if (f.from) {
     conditions.push(
       sql`coalesce(${latest.periodEnd}, (coalesce(${submissions.driveCreatedAt}, ${submissions.detectedAt}))::date) >= ${f.from}::date`,
@@ -196,7 +199,8 @@ export async function countSubmissions(db: AnyDb, statuses: SubmissionStatus[]):
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(submissions)
-    .where(inArray(submissions.status, statuses));
+    .leftJoin(interpreters, eq(submissions.interpreterId, interpreters.id))
+    .where(and(inArray(submissions.status, statuses), sql`(${submissions.interpreterId} is null or ${interpreters.active})`));
   return row?.n ?? 0;
 }
 

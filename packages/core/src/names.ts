@@ -33,3 +33,38 @@ export function matchByName<T extends NamedPerson>(name: string | null, people: 
   const hits = people.filter((p) => [p.fullName, ...p.aliases].some((n) => normalizeName(n) === target));
   return hits.length === 1 ? hits[0] : null;
 }
+
+function levenshtein(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return prev[b.length];
+}
+
+const tokenOk = (want: string, have: string) => want === have || (want.length >= 5 && levenshtein(want, have) <= 1);
+
+/**
+ * Sugerencia por nombre parecido: todas las palabras del nombre registrado (mínimo 2) aparecen en el nombre del Form,
+ * tolerando una letra de diferencia en palabras largas. "Josue Callapa" ← "Josue Callapa Andrade";
+ * "Fabrizio Del Pozo" ← "Fabrizzio Del Pozo". Devuelve solo si hay un candidato. Es una pista: un gerente confirma.
+ */
+export function suggestByName<T extends NamedPerson>(name: string | null, people: T[]): T | null {
+  const exact = matchByName(name, people);
+  if (exact) return exact;
+  if (!name) return null;
+  const have = normalizeName(name).split(" ").filter(Boolean);
+  const hits = people.filter((p) =>
+    [p.fullName, ...p.aliases].some((n) => {
+      const want = normalizeName(n).split(" ").filter(Boolean);
+      return want.length >= 2 && want.every((w) => have.some((h) => tokenOk(w, h)));
+    }),
+  );
+  return hits.length === 1 ? hits[0] : null;
+}

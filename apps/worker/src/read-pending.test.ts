@@ -100,7 +100,7 @@ async function main() {
   const status = Object.fromEntries(
     (await db.select().from(submissions)).map((s) => [s.driveFileId, { status: s.status, reason: s.reviewReason ?? "" }]),
   );
-  assert.equal(status.bueno.status, "read");
+  assert.equal(status.bueno.status, "read", status.bueno.reason);
   assert.equal(status.dudoso.status, "read", "el modelo mayor resuelve la confianza baja");
   assert.equal(status.viejo.status, "needs_review");
   assert.match(status.viejo.reason, /hace 33 días/);
@@ -153,6 +153,20 @@ async function main() {
   assert.equal(byFile["f-cruce"].interpreterId, t3.id);
   assert.match(byFile["f-cruce"].reviewReason ?? "", /nombre del Form apunta a Prueba Dos, pero el ID de Propio es de Prueba Tres/);
   assert.equal(byFile["f-quinc"].status, "read", "un acumulado mayor del mismo mes no es doble conteo");
+
+  // Pista solo por nombre, de alguien sin ID cargado: va a revisión una vez para confirmar
+  await addForm("f-nombre", t2.id);
+  await readPending({
+    db,
+    store,
+    reader: new FakeReader({ "f-nombre": { small: { periodStart: "2026-10-01", periodEnd: "2026-10-11", minutes: 500, portalInterpreterId: "44444" } } }),
+    settings,
+    now,
+  });
+  const [named] = await db.select().from(submissions).where(eq(submissions.driveFileId, "f-nombre"));
+  assert.equal(named.interpreterId, t2.id);
+  assert.equal(named.status, "needs_review");
+  assert.match(named.reviewReason ?? "", /Asignado por el nombre del Form a Prueba Dos/);
 
   // Evaluación: una sola vez por versión
   const evalReader = new FakeReader({

@@ -10,12 +10,14 @@ export function SubmissionCard({
   timezone,
   review,
   people,
+  suggestedId,
 }: {
   s: SubmissionView;
   image: string | null;
   timezone: string;
   review: "open" | "collapsed" | "none";
   people: { id: number; label: string }[];
+  suggestedId?: number | null;
 }) {
   const portalMismatch = s.expectedPortalId && s.portalInterpreterId && s.expectedPortalId !== s.portalInterpreterId;
   const canConfirm = s.minutes !== null && Boolean(s.periodStart && s.periodEnd);
@@ -28,6 +30,7 @@ export function SubmissionCard({
       periodEnd={s.periodEnd}
       canConfirm={canConfirm}
       interpreterId={s.interpreterId}
+      suggestedId={suggestedId}
       people={people}
     />
   );

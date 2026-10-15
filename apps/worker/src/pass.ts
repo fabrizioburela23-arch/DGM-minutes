@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { DriveImage, DriveSource } from "@dgm/core/drive";
-import { matchByName, uploaderNameFromFile } from "@dgm/core/names";
+import { suggestByName, uploaderNameFromFile } from "@dgm/core/names";
 import type { ObjectStore } from "@dgm/core/storage";
 import { type AnyDb, eq, inArray, interpreters, submissions, workerRuns } from "@dgm/db";
 
@@ -127,7 +127,7 @@ export async function runPass(deps: {
         try {
           const uploaderName = layout === "form" ? uploaderNameFromFile(image.name) : null;
           // En modo Form, el nombre es solo una primera pista; la IA confirma con el ID de Propio.
-          const person = batch.person ?? matchByName(uploaderName, people);
+          const person = batch.person ?? suggestByName(uploaderName, people);
           const bytes = await drive.download(image.id);
           const sha256 = createHash("sha256").update(bytes).digest("hex");
           const key = storageKey(batch.person ? batch.person.code : null, image, now());

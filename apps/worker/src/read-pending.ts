@@ -14,16 +14,23 @@ export function resolveInterpreter(
   current: Person | null,
   portalId: string | null,
   people: Person[],
+  /** true si `current` salió del nombre del Google Form (y no de su carpeta, que es confiable). */
+  fromName = false,
 ): { person: Person | null; conflict: string | null } {
   const byId = portalId ? people.find((p) => p.portalId === portalId) ?? null : null;
   if (byId) {
     const conflict =
-      current && current.id !== byId.id && current.portalId === null
+      fromName && current && current.id !== byId.id && current.portalId === null
         ? `El nombre del Form apunta a ${current.fullName}, pero el ID de Propio es de ${byId.fullName}`
         : null;
     return { person: byId, conflict };
   }
-  return { person: current, conflict: null };
+  // Sin coincidencia por ID: queda la pista del nombre. Si esa persona aún no tiene ID cargado, no hay cómo verificar.
+  const conflict =
+    fromName && current && current.portalId === null
+      ? `Asignado por el nombre del Form a ${current.fullName}: confirma que es correcto (el sistema guardará su ID de Propio)`
+      : null;
+  return { person: current, conflict };
 }
 
 export type ReadSettings = {
@@ -122,6 +129,7 @@ export async function readPending(deps: {
       id: submissions.id,
       storageKey: submissions.storageKey,
       interpreterId: submissions.interpreterId,
+      uploaderName: submissions.uploaderName,
     })
     .from(submissions)
     .where(eq(submissions.status, "pending"))
@@ -146,7 +154,7 @@ export async function readPending(deps: {
       const current = sub.interpreterId ? (people.find((p) => p.id === sub.interpreterId) ?? null) : null;
 
       const check = async (reading: ScreenshotReading) => {
-        const { person, conflict } = resolveInterpreter(current, reading.portalInterpreterId, people);
+        const { person, conflict } = resolveInterpreter(current, reading.portalInterpreterId, people, sub.uploaderName !== null);
         const reasons = validateReading(reading, {
           today: todayIn(timezone, now()),
           ruleFrequency,
