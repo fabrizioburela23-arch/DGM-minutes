@@ -17,7 +17,7 @@ Sistema de reporte automático de minutos para DGM Interpreters. Cada intérpret
   - `packages/db` — Drizzle ORM, esquema y migraciones de Postgres.
   - `packages/core` — lectura con IA, reglas de validación y cálculo de entregas/atrasos. Lo usan web y worker.
 - Hosting: Railway, proyecto `astonishing-insight`, región EU West. Ya existen: el servicio `DGM-minutes` conectado a este repo, Postgres y el bucket `coordinated-drawer`. El worker será un segundo servicio del mismo repo, con cron. La configuración de Railway vive en la pantalla Settings de cada servicio, no en un `railway.json` (Railway ya no lo acepta para servicios nuevos): `DGM-minutes` construye con `pnpm --filter @dgm/web build`, arranca con `pnpm --filter @dgm/web start`, healthcheck `/api/health`, auto-deploy desde `main`, y paso pre-deploy `pnpm --filter @dgm/db migrate` (aplica migraciones antes de cada despliegue). URL pública: https://dgm-minutes-production.up.railway.app
-- Worker en Railway: servicio `DGM-worker` (duplicado del web), build `echo worker-sin-build`, start `pnpm --filter @dgm/worker start`, sin healthcheck ni pre-deploy, cron `*/15 * * * *` (UTC), auto-deploy desde `main`. Sus variables son copias de las del web más `DRIVE_ROOT_FOLDER_ID`. Si se rota una clave, hay que cambiarla en los dos servicios. Por ahora `DRIVE_ROOT_FOLDER_ID` apunta a la carpeta de prueba "DGM Minutos – prueba" del Drive de Fabrizio (subcarpetas T001–T003); se cambiará por la de DGM.
+- Worker en Railway: servicio `DGM-worker` (duplicado del web), build `echo worker-sin-build`, start `pnpm --filter @dgm/worker start`, sin healthcheck ni pre-deploy, cron `*/15 * * * *` (UTC), auto-deploy desde `main`. Sus variables son copias de las del web más `DRIVE_ROOT_FOLDER_ID`. Si se rota una clave, hay que cambiarla en los dos servicios. Desde el 14 oct 2026 `DRIVE_ROOT_FOLDER_ID` apunta a la carpeta "Google Forms" de DGM, con `DRIVE_LAYOUT=form` y `DRIVE_SINCE=2026-10-01`. La carpeta de prueba "DGM Minutos – prueba" (T001–T003) ya no se usa; esos intérpretes de prueba están dados de baja y la bandeja los oculta.
 - Google Cloud: proyecto `dgm-minutos`, API de Drive habilitada, cuenta de servicio `dgm-drive-lector@dgm-minutos.iam.gserviceaccount.com` sin roles (solo verá las carpetas que DGM le comparta).
 - IA: API de Anthropic (`@anthropic-ai/sdk`). Modelo pequeño por defecto `claude-haiku-5-5`, modelo mayor `claude-sonnet-5-5`; ambos configurables por variable.
 - Google Drive: paquete `googleapis` con cuenta de servicio, permiso de solo lectura (`drive.readonly`).
@@ -176,7 +176,7 @@ Con la regla quincenal los periodos son quincenas (1–15 y 16–fin de mes): un
 ## Pendientes de DGM (no inventar)
 
 - Regla de entrega: frecuencia, hora límite, zona horaria, días exigidos y feriados.
-- Confirmar que la pestaña Septiembre de cada hoja es el equipo actual.
+- Confirmar que la pestaña Septiembre de cada hoja es el equipo actual (cargada el 14 oct 2026: 28 de C-tel/Simplified con ID y 23 de Interpredia sin ID). Primera prueba real: los 26 totales de septiembre de C-tel/Simplified leídos por la IA coinciden exactamente con la hoja que DGM llena a mano.
 - Plazo exacto de cada corte quincenal (hoy: día 16 y día 1, 23:59).
 - Compartir la hoja de respuestas del Google Form (hora exacta y correo de quien envía).
 - Campos extra que importan además de los minutos.
